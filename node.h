@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include "link.h"
+#include "sha1.hpp"
 
 using namespace std;
 
@@ -13,7 +14,12 @@ enum Role {Client, Server};
 //typedef char ID[4];
 //typedef int ID;
 struct ID {
-   int id;
+   int id; /* 0 < id < 256 = 8 * 16 */
+   
+   bool operator<(ID other) const {
+      return id > other.id;
+   }
+
    /* for key. */
    string ip;
    int port;
@@ -38,7 +44,13 @@ struct ID {
       return true;
    }
 
-   static void makeID(string &str, ID *target);
+   static void makeID(string &str, ID *target) {
+      SHA1 checksum;
+      checksum.update(str);
+      string hash = checksum.final();
+      string t = hash.substr(hash.length() - 2, 2);
+      target->id = t[0] * 16 + t[1];
+   }
 };
 
 class Link;
@@ -90,12 +102,14 @@ private:
    //void create
    ID getNodeByKey(ID *key);
    int getFdByNodeId(ID *id);
-   int lookup(ID *key);
+   int lookup(ID *key, bool serv = false);
    void forward(ID *id, ID *key);
    void route(ID *key);
    int sha_pref(ID *key);
    void saveMsg(char *msg, int len);
    void makeMsg(ID *id, ID *key, char op);
+
+   void decode(char *data, char op, ID *target);
 };
 
 class Server : public Node {

@@ -12,6 +12,7 @@
 #include <string.h>
 
 #define MAX_NODE 10240
+#define REMAIN 10
 
 void Link::poll(Node *node) {
    int epfd = epoll_create(1);

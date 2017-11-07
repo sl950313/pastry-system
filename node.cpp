@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include "sha1.hpp"
 
-#define BIT_NUM 8
+#define BIT_NUM 4
 
 #define PULL 1
 #define PUSH 0
@@ -15,18 +15,15 @@
 
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
-   b = 2;
-   l = 8;
+   b = 4;
+   l = 4;
    local_ip = ip;
    local_port = port;
    serv_ip = servip;
    serv_port = servp;
 
-   /*
-   SHA1 checksum;
-   checksum.update(ip);
-   memcpy(id, checksum.final().c_str(), 16);
-   */
+   /* for server */
+   status = 0; // PUSH_LOOKUP_NODE.
 }
 
 Node::~Node() {
@@ -86,6 +83,13 @@ void Node::processNetworkMsg(char *buf, int len) {
    case FIRST_PUSH:
       saveMsg(data, len - 1);
       break;
+   case FORWARD:
+      {
+         ID *key = (ID *)malloc(sizeof(*key));
+         decode(data, FORWARD, key);
+         lookup(key);
+         free(key);
+      }
    default:
       printf("pastry recerive other msg[%s], just print!\n", buf);
       break;
@@ -100,8 +104,21 @@ void Node::saveMsg(char *msg, int len) {
    keys.insert(pair<ID *,  string >(key, _msg));
 }
 
+/*
+ * server run the command.
+ */
 void Node::push(ID *key, void *message) {
    /* let the message to the right node-id*/
+   switch (status) {
+   case 0:
+      lookup(key, true);
+      break;
+   case 1:
+      break;
+   default:
+      break;
+   }
+   lookup(key);
    ID node_id = getNodeByKey(key);
    char msg[64] = {0};
    int len = 4 + 1 + 4;
@@ -161,7 +178,7 @@ int Node::sha_pref(ID *key) {
    return -1;
 }
 
-int Node::lookup(ID *key) { 
+int Node::lookup(ID *key, bool server) { 
    /* check whether the key is controled by myself. */
    map<ID *, string >::iterator it = keys.find(key);
    if (it != keys.end()) {
@@ -172,7 +189,9 @@ int Node::lookup(ID *key) {
          if (fd == -1) {
             links->addNewNode(key->ip, key->port);
             fd = links->find(pair<string, int>(key->ip, key->port));
-         }
+         } 
+         char msg[64] = {0};
+         int len = 1 + 4 + it->second.length() + 
          write(fd, it->second.c_str(), it->second.length());
       }
       return 1;
@@ -202,7 +221,9 @@ void Node::forward(ID *id, ID *key) {
    int fd = links->find(pair<string, int>(id->ip, id->port));
    //string msg = makeMsg(id, key, PULL);
    char msg[64] = {0};
-   write(fd, msg.c_str(), msg.length());
+   int len = 1 + 4 + key->ip.length() + 4;
+   sprintf(msg, "%d%c%d%s%d%d", len, FORWARD, (int)key->ip.length(), key->ip.c_str(), key->port, key->id);
+   write(fd, msg, len + 4);
 }
 
 void Node::makeMsg(ID *id, ID *key, char op) {
@@ -215,4 +236,22 @@ void Node::makeMsg(ID *id, ID *key, char op) {
    memcpy(msg, &len, 4);
    memcpy(msg + 4, &op, 1);
    //memcpy(msg + 5, &key->id, );
+}
+
+void Node::decode(char *data, char op, ID *target) {
+   switch (op) {
+   case FORWARD:
+      { 
+         int len = 0;
+         memcpy(&len, data, 4);
+         char ip[32] = {0};
+         memcpy(ip, data + 4, len);
+         target->ip = ip;
+         memcpy(&target->port, data + 4 + len, 4);
+         memcpy(&target->id, data + 4 + len + 4, 4);
+         break;
+      }
+   default:
+      break;
+   }
 }
