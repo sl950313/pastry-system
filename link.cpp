@@ -14,6 +14,31 @@
 #define MAX_NODE 10240
 #define REMAIN 10
 
+void Link::listen() {
+   int    socket_fd;
+   if( (socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ){  
+      printf("create socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      exit(0);  
+   } 
+   struct sockaddr_in     servaddr;  
+   memset(&servaddr, 0, sizeof(servaddr));  
+   servaddr.sin_family = AF_INET;  
+   servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+   servaddr.sin_port = htons(port);//设置的端口为DEFAULT_PORT  
+
+   if( bind(socket_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1){  
+      printf("bind socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      exit(0);  
+   }
+
+   if(::listen(socket_fd, 10) == -1){  
+      printf("listen socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      exit(0);  
+   }  
+   printf("======waiting for client's request======\n");  
+   listenfd = socket_fd;
+}
+
 void Link::poll(Node *node) {
    int epfd = epoll_create(1);
    struct epoll_event ev,events[10240];
@@ -57,5 +82,15 @@ void Link::poll(Node *node) {
             }
          }
       }
+   }
+}
+
+int Link::find(string ip, int port) {
+   map<addr, int>::iterator it = links_map.find(addr(ip, port));
+   if (it != links_map.end()) {
+      return it->second;
+   } else {
+      printf("error occure in Link::find[ip:%s,port:%d]\n", ip.c_str(), port);
+      return -1;
    }
 }

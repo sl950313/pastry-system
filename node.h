@@ -14,6 +14,9 @@ enum Role {Client, Server};
 //typedef char ID[4];
 //typedef int ID;
 struct ID {
+   ID() {
+      id = -1;
+   }
    int id; /* 0 < id < 256 = 8 * 16 */
    
    bool operator<(ID other) const {
@@ -29,19 +32,40 @@ struct ID {
    }
 
    int distance(ID *other) {
+      // for the 1.0 version, we use the sha_pref.
       unuse(other);
-      return -1;
+      return b - sha_pref(other);
    }
 
    int position(int p) {
-      unuse(&p);
-      return -1;
+      return (id / pow(b, p)) % b;
    }
 
-   bool notNull(int p, int v) {
-      unuse(&p);
-      unuse(&v);
-      return true;
+   int sha_pref(const ID *other) { 
+      int res = 0;
+      int src_id = id, des_id = other->id;
+      for (int i = 0; i < b; ++i) {
+         if (src_id % 4 == des_id % 4) {
+            res++;
+         } else {
+            break;
+         }
+         src_id /= 4;
+         des_id /= 4;
+      }
+      return res;
+   }
+
+   bool notNull() {
+      return id == -1;
+   }
+
+   int pow(int n, int c) {
+      int sum = 1;
+      while(c--) {
+         sum *= n;
+      }
+      return sum;
    }
 
    static void makeID(string &str, ID *target) {
@@ -51,7 +75,10 @@ struct ID {
       string t = hash.substr(hash.length() - 2, 2);
       target->id = t[0] * 16 + t[1];
    }
+   static int b;
 };
+
+int ID::b = 4;
 
 class Link;
 
@@ -70,8 +97,7 @@ public:
    void boot();
 
    void pull(ID *key);
-   void push(ID *key, void *msg);
-   void push();
+   void push(ID *key, char *msg);
 
    void processNetworkMsg(char *buf, int len);
 
@@ -100,16 +126,20 @@ private:
    map<ID *, string> keys;
 
    //void create
-   ID getNodeByKey(ID *key);
+   //ID getNodeByKey(ID *key);
    int getFdByNodeId(ID *id);
    int lookup(ID *key, bool serv = false);
    void forward(ID *id, ID *key);
    void route(ID *key);
-   int sha_pref(ID *key);
+   //int sha_pref(ID *key);
    void saveMsg(char *msg, int len);
-   void makeMsg(ID *id, ID *key, char op);
+   //void makeMsg(ID *id, ID *key, char op);
+   void send(int fd, char op, ID *keyorId, char *message, int msg_len);
 
-   void decode(char *data, char op, ID *target);
+   void encode(char op, ID *src, char *extra_msg, int msg_len);
+   void decode(char *data, char op, ID *target, char *extra_msg);
+
+   int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
 };
 
 class Server : public Node {

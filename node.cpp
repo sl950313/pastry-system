@@ -8,10 +8,12 @@
 
 #define BIT_NUM 4
 
-#define PULL 1
-#define PUSH 0
+#define START_PULL 1
+//#define PUSH 0
 #define FIRST_PUSH 2
-#define FORWARD 3
+#define FORWARD 4
+#define FW_RESP 8
+#define PULL 16
 
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
@@ -40,8 +42,7 @@ void Node::init() {
    leaf_set.resize(l);
    rtable = (ID **)malloc(sizeof(int *) * BIT_NUM);
    for (int i = 0; i < BIT_NUM; ++i) {
-      rtable[i] = (ID *)malloc(sizeof(int) * b);
-      memset(rtable[i], 0, sizeof(int) * b);
+      rtable[i] = new ID();
    }
    nset.resize(l);
 
@@ -66,29 +67,67 @@ void Node::boot() {
 }
 
 void Node::processNetworkMsg(char *buf, int len) { 
-   unuse(&len);
-   char op = buf[0];
-   char *data = buf + 1;
+   char op;// = buf[0];
+   //char *data = buf + 1;
+   ID *src = (ID *)malloc(sizeof(*src));
+   char *extra_msg = NULL;
+   decode(buf, op, src, extra_msg);
+
+
    switch (op) {
-   case PULL:
+   case START_PULL:
       {
-      ID *key = (ID *)malloc(sizeof(*key));
-      key->id = (int)data;
-      key->ip = local_ip;
-      key->port = local_port;
-      pull(key);
-      free(key);
-      break;
+         ID *key = (ID *)malloc(sizeof(*key));
+         key->id = (int)extra_msg;
+         key->ip = local_ip;
+         key->port = local_port;
+         //pull(key);
+         int fd = lookup(key);
+         if (fd == 0) {
+            // the source of key is localed.
+            // nothing to do.
+         } else if (fd > 0) {
+            key->id = id.id;
+            send(fd, FORWARD, key, (char *)&key->id, 4);
+            // the source is localed on node with filescription fd.
+         } else {
+            // wait for FW_RESP.
+         }
+         free(key);
+         break;
       }
    case FIRST_PUSH:
-      saveMsg(data, len - 1);
+      saveMsg(extra_msg,  strlen(extra_msg));
       break;
    case FORWARD:
       {
          ID *key = (ID *)malloc(sizeof(*key));
-         decode(data, FORWARD, key);
-         lookup(key);
+         key->id = (int)extra_msg;
+         key->ip = src->ip;
+         key->port = src->port;
+         int fd = lookup(key);
+         if (fd == 0) {
+            fd = getFdByNodeId(key);
+            //string msg = local_ip + to_string(local_port);
+            send(fd, FW_RESP, &id, NULL, 0);
+         } else if (fd > 0) {
+            //char msg[64] = {0};
+            //sprintf(msg, "%d%s%d", (int)key->ip.length(), key->ip.c_str(), key->port);
+            send(fd, FORWARD, src, (char *)&key->id, 4);
+         } else {
+         }
          free(key);
+         break;
+      }
+   case FW_RESP:
+      {
+         if (status == 1) { // means the RESP is received by server.
+            push(src, NULL);
+         } else { // the RESP is received by client.
+            // TODO: some other strategy should be added.
+            saveMsg(extra_msg, strlen(extra_msg));
+         }
+         break;
       }
    default:
       printf("pastry recerive other msg[%s], just print!\n", buf);
@@ -96,52 +135,39 @@ void Node::processNetworkMsg(char *buf, int len) {
    }
 }
 
-void Node::saveMsg(char *msg, int len) {
-   unuse(&len);
-   string _msg = msg;
-   ID *key = (ID *)malloc(sizeof(*key));
-   ID::makeID(_msg, key);
-   keys.insert(pair<ID *,  string >(key, _msg));
-}
-
 /*
  * server run the command.
  */
-void Node::push(ID *key, void *message) {
+void Node::push(ID *key, char *message) {
    /* let the message to the right node-id*/
    switch (status) {
    case 0:
-      lookup(key, true);
-      break;
+      {
+         int fd = lookup(key);
+         status = 1;
+         if (fd > 0) {
+            //status = 0;
+            send(fd, FIRST_PUSH, &id, NULL, 0);
+         } else if (fd == 0) {
+            /* the key should be localed.*/
+            saveMsg(message, strlen(message));
+         } else {
+            break;
+            // wait for msg receive from other node with op FW_RESP.
+         }
+      }
    case 1:
+      {
+         for (int i = 0; i < 10240; ++i) {
+            if (links->links[i].fd == 0) continue;
+            send(links->links[i].fd, START_PULL, &id, (char *)&key->id, sizeof(key->id));
+         }
+         status = 0;
+      }
       break;
    default:
       break;
    }
-   lookup(key);
-   ID node_id = getNodeByKey(key);
-   char msg[64] = {0};
-   int len = 4 + 1 + 4;
-   char op = FIRST_PUSH;
-   //int data = key->id;
-
-   memcpy(msg, &len, 4);
-   memcpy(msg + 4, &op, 1);
-   memcpy(msg + 5, message, ((int *)message)[0]);
-   write(getFdByNodeId(&node_id), msg, len);
-
-   /* notify other nodes to pull the message */
-   for (int i = 0; i < 10240; ++i) {
-      if (links->links[i].fd == 0) continue;
-      memset(msg, 0, 64);
-      op = PULL;
-      int data = key->id;
-      memcpy(msg, &len, 4);
-      memcpy(msg + 4, &op, 1);
-      memcpy(msg + 5, &data, 4);
-      write(links->links[i].fd, msg, len);
-   }
-   //route(message, key);
 }
 
 void Node::pull(ID *key) {
@@ -152,16 +178,16 @@ void Node::pull(ID *key) {
  * core route algorithm of pastry
  */
 void Node::route(ID *key) {
-   int p = sha_pref(key);
-   int v = key->position(p);
+   int p = id.sha_pref(key);
+   int v = key->position(p - 1);
 
-   if (rtable[p][v].notNull(p, v)) {
+   if (rtable[p][v].notNull()) {
       forward(&rtable[p][v], key);
    } else {
       int min_dis = INT_MAX;
       int pos = -1;
       for (int i = 0; i < BIT_NUM; ++i) {
-         if (!rtable[p][i].notNull(p, i)) {
+         if (!rtable[p][i].notNull()) {
             int dis = rtable[p][i].distance(key);
             if (dis < min_dis) {
                pos = i;
@@ -173,28 +199,23 @@ void Node::route(ID *key) {
    }
 }
 
-int Node::sha_pref(ID *key) {
-   unuse(key);
-   return -1;
-}
-
 int Node::lookup(ID *key, bool server) { 
+   unuse(&server);
    /* check whether the key is controled by myself. */
    map<ID *, string >::iterator it = keys.find(key);
+   int fd = -1;
    if (it != keys.end()) {
       if (key->ip.compare(local_ip) && key->port == local_port) {
+         fd = 0;
          // the key is localed.
       } else {
-         int fd = links->find(pair<string, int>(key->ip, key->port));
+         fd = links->find(key->ip, key->port);
          if (fd == -1) {
             links->addNewNode(key->ip, key->port);
-            fd = links->find(pair<string, int>(key->ip, key->port));
+            fd = links->find(key->ip, key->port);
          } 
-         char msg[64] = {0};
-         int len = 1 + 4 + it->second.length() + 
-         write(fd, it->second.c_str(), it->second.length());
       }
-      return 1;
+      return fd;
    }
 
    /* check whether the key is in the leaf set */
@@ -209,36 +230,57 @@ int Node::lookup(ID *key, bool server) {
          }
       }
       forward(&leaf_set[closest], key);
-      return 0;
+      return -1;
    }
 
    /* find the closest node from route table. */
    route(key);
-   return 0;
+   return -1;
 }
 
 void Node::forward(ID *id, ID *key) {
-   int fd = links->find(pair<string, int>(id->ip, id->port));
-   //string msg = makeMsg(id, key, PULL);
+   int fd = links->find(id->ip, id->port);
    char msg[64] = {0};
    int len = 1 + 4 + key->ip.length() + 4;
    sprintf(msg, "%d%c%d%s%d%d", len, FORWARD, (int)key->ip.length(), key->ip.c_str(), key->port, key->id);
    write(fd, msg, len + 4);
 }
 
-void Node::makeMsg(ID *id, ID *key, char op) {
-   unuse(id);
-   unuse(key);
-   char msg[64] = {0};
-   int len = 4 + 1 + 4;
-   //int data = key->id;
+void Node::saveMsg(char *msg, int len) {
+   unuse(&len);
+   string _msg = msg;
+   ID *key = (ID *)malloc(sizeof(*key));
+   ID::makeID(_msg, key);
+   keys.insert(pair<ID *,  string >(key, _msg));
+} 
 
-   memcpy(msg, &len, 4);
-   memcpy(msg + 4, &op, 1);
-   //memcpy(msg + 5, &key->id, );
+void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
+   char _msg[64] = {0};
+   int len = 4 + 1 + 4 + keyorId->ip.length() + 4 + 4 + 4 + msg_len;
+   sprintf(_msg, "%d%c%d%s%d%d%d%s", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len, msg);
+   write(fd, _msg, len); 
 }
 
-void Node::decode(char *data, char op, ID *target) {
+void Node::encode(char op, ID *src, char *extra_msg, int msg_len) {
+}
+
+void Node::decode(char *data, char op, ID *target, char *extra_msg) {
+   op = data[0];
+   data++;
+   int ip_len = ((int *)data)[0];
+   data += 4;
+   char ip[32] = {0};
+   memcpy(ip, data, ip_len);
+   target->ip = ip;
+   data += ip_len;
+   target->port = ((int *)data)[0];
+   data += 4;
+   target->id = ((int *)data)[0];
+   data += 4;
+   //int msg_len = ((int *)data)[0];
+   data += 4;
+   extra_msg = data;
+   /*
    switch (op) {
    case FORWARD:
       { 
@@ -254,4 +296,10 @@ void Node::decode(char *data, char op, ID *target) {
    default:
       break;
    }
+   */
 }
+
+int Node::getFdByNodeId(ID *id) {
+   links->find(id->ip, id->port);
+}
+
