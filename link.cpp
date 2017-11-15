@@ -40,7 +40,7 @@ void Link::listen() {
 }
 
 void Link::poll(Node *node) {
-   int epfd = epoll_create(1);
+   epfd = epoll_create(1);
    struct epoll_event ev,events[10240];
 
    ev.data.fd = listenfd;
@@ -52,6 +52,7 @@ void Link::poll(Node *node) {
       int nfds = epoll_wait(epfd, events, MAX_NODE, 1000);
 
       if (node->role == 1) { /* Server need more work. */
+         /*
          ID *key = (ID *)malloc(sizeof(ID));
          char msg[32] = {0};
          sprintf(msg, "Hello World %d!", rand() % 1024);
@@ -59,11 +60,12 @@ void Link::poll(Node *node) {
          ID::makeID(t, key);
          node->push(key, msg);
          free(key);
+         */
       }
 
       for (int i = 0; i < nfds; ++i) {
          if (events[i].data.fd == listenfd) {
-            newConnection();
+            newConnection(node);
          } else if (events[i].events & EPOLLIN) { 
             int len = -1;
             char buf[256] = {0};
@@ -85,6 +87,27 @@ void Link::poll(Node *node) {
    }
 }
 
+bool Link::newConnection(Node *node) {
+   struct sockaddr_in conn_addr;
+   socklen_t addrlen = sizeof(conn_addr);
+   int connfd = accept(listenfd, (struct sockaddr *)&conn_addr, &addrlen);
+   struct epoll_event ev;
+   ev.data.fd = connfd;
+
+   epoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &ev);
+
+   string ip = inet_ntoa(conn_addr.sin_addr);
+   int port = ntohs(conn_addr.sin_port);
+   links_map.insert(pair<addr, int>(addr(ip, port), connfd));
+
+   Each_link el(connfd, ip, port);
+   links[connfd] = el;
+
+   node->newNode(&el);
+
+   return true;
+}
+
 int Link::find(string ip, int port) {
    map<addr, int>::iterator it = links_map.find(addr(ip, port));
    if (it != links_map.end()) {
@@ -93,4 +116,26 @@ int Link::find(string ip, int port) {
       printf("error occure in Link::find[ip:%s,port:%d]\n", ip.c_str(), port);
       return -1;
    }
+}
+
+bool Link::connect(string &ip, int port) {
+   int client_sockfd;  
+   struct sockaddr_in remote_addr;
+   memset(&remote_addr,0,sizeof(remote_addr));
+   remote_addr.sin_family=AF_INET;
+   remote_addr.sin_addr.s_addr=inet_addr(ip.c_str());
+   remote_addr.sin_port=htons(port);
+   if ((client_sockfd=socket(PF_INET,SOCK_STREAM,0)) < 0)  {  
+      return false;  
+   }
+
+   if (::connect(client_sockfd,(struct sockaddr *)&remote_addr,sizeof(struct sockaddr)) < 0) {  
+      //perror("connect");  
+      return false;  
+   } 
+
+   links[client_sockfd].ip = ip;
+   links[client_sockfd].port = port;
+   links[client_sockfd].fd = client_sockfd;
+   return true;
 }

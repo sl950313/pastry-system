@@ -8,7 +8,7 @@
 
 using namespace std;
 
-void unuse(void *) {};
+void unuse(void *);// {};
 
 enum Role {Client, Server};
 //typedef char ID[4];
@@ -16,6 +16,7 @@ enum Role {Client, Server};
 struct ID {
    ID() {
       id = -1;
+      b = 4;
    }
    int id; /* 0 < id < 256 = 8 * 16 */
    
@@ -75,12 +76,13 @@ struct ID {
       string t = hash.substr(hash.length() - 2, 2);
       target->id = t[0] * 16 + t[1];
    }
-   static int b;
+   int b;
+   //static int b;
 };
 
-int ID::b = 4;
 
 class Link;
+struct Each_link;
 
 class Node {
 public:
@@ -95,6 +97,7 @@ public:
    void deliver(void *msg, int key);
    void init();
    void boot();
+   void newNode(Each_link *el);
 
    void pull(ID *key);
    void push(ID *key, char *msg);
@@ -125,6 +128,8 @@ private:
    /* msgs controled by myself */
    map<ID *, string> keys;
 
+   void assert(bool assert, char *str);
+   void nodesDiscoveryAlg();
    //void create
    //ID getNodeByKey(ID *key);
    int getFdByNodeId(ID *id);

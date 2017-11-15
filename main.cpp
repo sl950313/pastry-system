@@ -4,20 +4,26 @@
 #define SERVER 1
 
 void Usage() {
-   printf("./pastry role\n");
+   printf("./pastry role local_port [ip] [port]\n");
 }
 
 int main(int argc, char **argv) {
-   /*
-   if (argc != 2) {
+   if (argc != 3 && argc != 5) {
       Usage();
       return -1;
    }
    int role = atoi(argv[1]);
-   Node *serv = new Node(role, "localhost", 8001, "114.214.169.173", 8000);
+   int local_p = atoi(argv[2]);
+   int port = atoi(argv[3]);
+   char *ip = argv[4];
+   Node *serv;
+   if (role == 0) {
+      serv = new Node(role, "localhost", local_p, ip, port);
+   } else {
+      serv = new Node(role, "localhost", local_p, "localhost", local_p);
+   }
    serv->init();
    serv->boot();
 
    delete serv; 
-   */
 }

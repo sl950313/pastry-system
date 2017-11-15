@@ -14,6 +14,7 @@
 #define FORWARD 4
 #define FW_RESP 8
 #define PULL 16
+#define SYNC 32
 
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
@@ -36,37 +37,70 @@ Node::~Node() {
 }
 
 void Node::init() {
+   char tmp[256] = {0};
+   sprintf(tmp, "%s:%d", local_ip.c_str(), local_port);
+   string t = tmp;
+   ID::makeID(t, &id);
+
    links = new Link(local_ip, local_port);
    links->listen();
 
    leaf_set.resize(l);
    rtable = (ID **)malloc(sizeof(int *) * BIT_NUM);
    for (int i = 0; i < BIT_NUM; ++i) {
-      rtable[i] = new ID();
+      //rtable[i] = new ID();
+      rtable[i] = (ID *)malloc(sizeof(ID) * id.b);
+      rtable[i][id.position(i)] = id;
    }
    nset.resize(l);
 
-   char tmp[256] = {0};
-   sprintf(tmp, "%s:%d", local_ip.c_str(), local_port);
-   string t = tmp;
-   ID::makeID(t, &id);
-
    if (role == Client) {
       bool res = links->connect(serv_ip, serv_port);
+      //assert(res, "error connect server[%s:%d]");
       if (!res) {
          printf("error connect server[%s:%d]\n", serv_ip.c_str(), serv_port);
          exit(-1);
       }
+      printf("connect server[%s:%d] success.\n", serv_ip.c_str(), serv_port);
+      // SYNC op.
+      ID *tmp = new ID();
+      tmp->ip = serv_ip;
+      tmp->port = serv_port;
+      int fd = getFdByNodeId(tmp);
+      send(fd, SYNC, tmp, NULL, 0);
+      delete tmp;
    }
 
    /* boot heartbeat thread. */
 }
 
+void Node::newNode(Each_link *el) {
+}
+
+void *test(void *arg) {
+   Node *node = (Node *)arg;
+   int c = 10;
+   while (c--) {
+      getchar(); 
+      ID *key = (ID *)malloc(sizeof(ID));
+      char msg[32] = {0};
+      sprintf(msg, "Hello World %d!", rand() % 1024);
+      string t = msg;
+      ID::makeID(t, key);
+      node->push(key, msg);
+      free(key);
+   }
+   return NULL;
+}
+
 void Node::boot() {
+   pthread_t pid;
+   pthread_create(&pid, NULL, test, this);
    links->poll(this);
 }
 
 void Node::processNetworkMsg(char *buf, int len) { 
+   unuse(&len);
    char op;// = buf[0];
    //char *data = buf + 1;
    ID *src = (ID *)malloc(sizeof(*src));
@@ -78,7 +112,8 @@ void Node::processNetworkMsg(char *buf, int len) {
    case START_PULL:
       {
          ID *key = (ID *)malloc(sizeof(*key));
-         key->id = (int)extra_msg;
+         memcpy(&key->id, extra_msg, sizeof(int));
+         //key->id = (int)extra_msg;
          key->ip = local_ip;
          key->port = local_port;
          //pull(key);
@@ -102,7 +137,8 @@ void Node::processNetworkMsg(char *buf, int len) {
    case FORWARD:
       {
          ID *key = (ID *)malloc(sizeof(*key));
-         key->id = (int)extra_msg;
+         memcpy(&key->id, extra_msg, sizeof(int));
+         //key->id = (int)extra_msg;
          key->ip = src->ip;
          key->port = src->port;
          int fd = lookup(key);
@@ -127,6 +163,10 @@ void Node::processNetworkMsg(char *buf, int len) {
             // TODO: some other strategy should be added.
             saveMsg(extra_msg, strlen(extra_msg));
          }
+         break;
+      }
+   case SYNC:
+      {
          break;
       }
    default:
@@ -211,9 +251,10 @@ int Node::lookup(ID *key, bool server) {
       } else {
          fd = links->find(key->ip, key->port);
          if (fd == -1) {
-            links->addNewNode(key->ip, key->port);
-            fd = links->find(key->ip, key->port);
-         } 
+            printf("The reason goes here, key[ip:%s,port%d,id:%d]\n", key->ip.c_str(), key->port, key->id);
+            //links->addNewNode(key->ip, key->port);
+            //fd = links->find(key->ip, key->port);
+         }
       }
       return fd;
    }
@@ -244,6 +285,9 @@ void Node::forward(ID *id, ID *key) {
    int len = 1 + 4 + key->ip.length() + 4;
    sprintf(msg, "%d%c%d%s%d%d", len, FORWARD, (int)key->ip.length(), key->ip.c_str(), key->port, key->id);
    write(fd, msg, len + 4);
+}
+
+void Node::nodesDiscoveryAlg() {
 }
 
 void Node::saveMsg(char *msg, int len) {
@@ -300,6 +344,14 @@ void Node::decode(char *data, char op, ID *target, char *extra_msg) {
 }
 
 int Node::getFdByNodeId(ID *id) {
-   links->find(id->ip, id->port);
+   return links->find(id->ip, id->port);
 }
 
+void Node::assert(bool assert, char *str) {
+   if (!assert) {
+      printf("%s\n", str);
+      exit(-1);
+   }
+}
+
+void unuse(void *) {}
