@@ -19,6 +19,12 @@ struct ID {
       b = 4;
    }
    int id; /* 0 < id < 256 = 8 * 16 */
+
+   void copy(ID &other) {
+      ip = other.ip;
+      id = other.id;
+      port = other.port;
+   }
    
    bool operator<(ID other) const {
       return id > other.id;
@@ -67,6 +73,10 @@ struct ID {
          sum *= n;
       }
       return sum;
+   }
+
+   bool addrEqual(ID *other) {
+      return ip.compare(other->ip) == 0 && port == other->port;
    }
 
    static void makeID(string &str, ID *target) {
@@ -120,7 +130,7 @@ private:
    vector<ID> leaf_set;
 
    /* routing table */
-   ID **rtable;
+   ID ***rtable;
 
    /* neighborhood set */
    vector<int> nset;
@@ -129,6 +139,7 @@ private:
    map<ID *, string> keys;
 
    void assert(bool assert, char *str);
+   int lookupKey(ID *key);
    void nodesDiscoveryAlg();
    //void create
    //ID getNodeByKey(ID *key);
@@ -140,9 +151,10 @@ private:
    void saveMsg(char *msg, int len);
    //void makeMsg(ID *id, ID *key, char op);
    void send(int fd, char op, ID *keyorId, char *message, int msg_len);
+   void send(ID *des, char op, ID *src, char *message, int msg_len);
 
    void encode(char op, ID *src, char *extra_msg, int msg_len);
-   void decode(char *data, char op, ID *target, char *extra_msg);
+   void decode(char *data, char &op, ID *target, char *extra_msg);
 
    int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
 };

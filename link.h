@@ -8,11 +8,12 @@ using namespace std;
 
 struct Each_link {
    int fd;
+   bool use;
    string ip;
    int port;
 
-   Each_link() {fd = -1;}
-   Each_link(int _fd, string &_ip, int _p) : fd(_fd), ip(_ip), port(_p) {}
+   Each_link() {fd = -1; use = false;}
+   Each_link(int _fd, string &_ip, int _p) : fd(_fd), use(true), ip(_ip), port(_p) {}
 };
 
 struct addr {
@@ -49,7 +50,7 @@ private:
 
    bool newConnection(Node *node);
    void processNetwork(); 
-
+   void cleaningWork(int fd);
 };
 
 #endif 

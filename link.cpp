@@ -63,19 +63,30 @@ void Link::poll(Node *node) {
          */
       }
 
+      if (nfds > 0) printf("%d fd events occure\n", nfds);
       for (int i = 0; i < nfds; ++i) {
          if (events[i].data.fd == listenfd) {
             newConnection(node);
          } else if (events[i].events & EPOLLIN) { 
-            int len = -1;
             char buf[256] = {0};
-            int nread = read(events[i].data.fd, &len, sizeof(len));
-            if (nread != sizeof(len) || len == -1) {
+            int nread = read(events[i].data.fd, buf, sizeof(int));
+            int len = atoi(buf);
+            printf("nread = [%d], len = [%d]\n", nread, len);
+            memset(buf, 0, 4);
+            if (nread == 0) {
+               // close the socket.
+               cleaningWork(events[i].data.fd);
+               //epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
+               //close(events[i].data.fd);
+               continue;
+            }
+            if (nread != sizeof(len) && len == -1) {
                printf("error ocuur\n");
                continue;
             } else {
                memset(buf, 0, 256);
                nread = read(events[i].data.fd, buf, len);
+               printf("nread=[%d],len=[%d],buf=[%s]\n", nread, len, buf);
                if (nread != len) {
                   printf("error ocuur\n"); 
                } else {
@@ -87,12 +98,20 @@ void Link::poll(Node *node) {
    }
 }
 
+void Link::cleaningWork(int fd) {
+   epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
+   close(fd);
+   links_map.erase(links_map.find(addr(links[fd].ip, links[fd].port)));
+   links[fd].use = false;
+}
+
 bool Link::newConnection(Node *node) {
    struct sockaddr_in conn_addr;
    socklen_t addrlen = sizeof(conn_addr);
    int connfd = accept(listenfd, (struct sockaddr *)&conn_addr, &addrlen);
    struct epoll_event ev;
    ev.data.fd = connfd;
+   ev.events = EPOLLIN;
 
    epoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &ev);
 
@@ -102,6 +121,7 @@ bool Link::newConnection(Node *node) {
 
    Each_link el(connfd, ip, port);
    links[connfd] = el;
+   printf("A new connection : [%s:%d]\n", el.ip.c_str(), el.port);
 
    node->newNode(&el);
 
@@ -130,12 +150,13 @@ bool Link::connect(string &ip, int port) {
    }
 
    if (::connect(client_sockfd,(struct sockaddr *)&remote_addr,sizeof(struct sockaddr)) < 0) {  
-      //perror("connect");  
+      perror("connect");  
       return false;  
    } 
 
    links[client_sockfd].ip = ip;
    links[client_sockfd].port = port;
    links[client_sockfd].fd = client_sockfd;
+   links_map.insert(pair<addr, int>(addr(ip, port), client_sockfd));
    return true;
 }

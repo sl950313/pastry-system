@@ -14,13 +14,17 @@ int main(int argc, char **argv) {
    }
    int role = atoi(argv[1]);
    int local_p = atoi(argv[2]);
-   int port = atoi(argv[3]);
-   char *ip = argv[4];
+   int port;
+   char *ip;
+   if (argc == 5) {
+      port = atoi(argv[4]);
+      ip = argv[3];
+   }
    Node *serv;
    if (role == 0) {
-      serv = new Node(role, "localhost", local_p, ip, port);
+      serv = new Node(role, "127.0.0.1", local_p, ip, port);
    } else {
-      serv = new Node(role, "localhost", local_p, "localhost", local_p);
+      serv = new Node(role, "127.0.0.1", local_p, "127.0.0.1", local_p);
    }
    serv->init();
    serv->boot();
