@@ -24,7 +24,7 @@ void Link::listen() {
    memset(&servaddr, 0, sizeof(servaddr));  
    servaddr.sin_family = AF_INET;  
    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-   servaddr.sin_port = htons(port);//设置的端口为DEFAULT_PORT  
+   servaddr.sin_port = htons(port);
 
    if( bind(socket_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1){  
       printf("bind socket error: %s(errno: %d)\n",strerror(errno),errno);  
@@ -52,15 +52,6 @@ void Link::poll(Node *node) {
       int nfds = epoll_wait(epfd, events, MAX_NODE, 1000);
 
       if (node->role == 1) { /* Server need more work. */
-         /*
-         ID *key = (ID *)malloc(sizeof(ID));
-         char msg[32] = {0};
-         sprintf(msg, "Hello World %d!", rand() % 1024);
-         string t = msg;
-         ID::makeID(t, key);
-         node->push(key, msg);
-         free(key);
-         */
       }
 
       if (nfds > 0) printf("%d fd events occure\n", nfds);
@@ -69,15 +60,23 @@ void Link::poll(Node *node) {
             newConnection(node);
          } else if (events[i].events & EPOLLIN) { 
             char buf[256] = {0};
+            if (!links[events[i].data.fd].use) {
+               int port = -1;
+               int fd = events[i].data.fd;
+               read(events[i].data.fd, &port, sizeof(int)); 
+               printf("receive port : %d\n", port);
+               links[events[i].data.fd].port = port;
+               links[events[i].data.fd].use = true;
+               links_map.insert(pair<addr, int>(addr(links[events[i].data.fd].ip, port), fd));
+               node->newNode(&links[events[i].data.fd]);
+               continue;
+            }
             int nread = read(events[i].data.fd, buf, sizeof(int));
             int len = atoi(buf);
             printf("nread = [%d], len = [%d]\n", nread, len);
             memset(buf, 0, 4);
             if (nread == 0) {
-               // close the socket.
                cleaningWork(events[i].data.fd);
-               //epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &ev);
-               //close(events[i].data.fd);
                continue;
             }
             if (nread != sizeof(len) && len == -1) {
@@ -106,6 +105,7 @@ void Link::cleaningWork(int fd) {
 }
 
 bool Link::newConnection(Node *node) {
+   unuse(node);
    struct sockaddr_in conn_addr;
    socklen_t addrlen = sizeof(conn_addr);
    int connfd = accept(listenfd, (struct sockaddr *)&conn_addr, &addrlen);
@@ -117,13 +117,11 @@ bool Link::newConnection(Node *node) {
 
    string ip = inet_ntoa(conn_addr.sin_addr);
    int port = ntohs(conn_addr.sin_port);
-   links_map.insert(pair<addr, int>(addr(ip, port), connfd));
 
    Each_link el(connfd, ip, port);
    links[connfd] = el;
    printf("A new connection : [%s:%d]\n", el.ip.c_str(), el.port);
 
-   node->newNode(&el);
 
    return true;
 }

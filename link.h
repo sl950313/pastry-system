@@ -13,7 +13,7 @@ struct Each_link {
    int port;
 
    Each_link() {fd = -1; use = false;}
-   Each_link(int _fd, string &_ip, int _p) : fd(_fd), use(true), ip(_ip), port(_p) {}
+   Each_link(int _fd, string &_ip, int _p) : fd(_fd), use(false), ip(_ip), port(_p) {}
 };
 
 struct addr {

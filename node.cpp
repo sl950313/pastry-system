@@ -15,11 +15,15 @@
 #define FW_RESP 8
 #define PULL 16
 #define SYNC 32
+#define SYNC_RT 64
+#define SYNC_RT_BACK 65
 
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
    b = 4;
    l = 4;
+   right = 1;
+   left = 0;
    local_ip = ip;
    local_port = port;
    serv_ip = servip;
@@ -33,6 +37,8 @@ Node::Node(int _role, string ip, int port, string servip, int servp) {
 
 Node::~Node() {
    delete links;
+   for (list<ID *>::iterator it = leaf_set.begin(); it != leaf_set.end(); ++it)
+      delete *it;
    for (int i = 0; i < BIT_NUM; ++i) {
       for (int j = 0; j < b; ++j)
          delete rtable[i][j];
@@ -50,7 +56,7 @@ void Node::init() {
    links = new Link(local_ip, local_port);
    links->listen();
 
-   leaf_set.resize(l);
+   leaf_set.push_back(&id);
    rtable = (ID ***)malloc(sizeof(ID **) * BIT_NUM);
    for (int i = 0; i < BIT_NUM; ++i) {
       //rtable[i] = new ID();
@@ -75,6 +81,7 @@ void Node::init() {
       tmp->ip = serv_ip;
       tmp->port = serv_port;
       int fd = getFdByNodeId(tmp);
+      write(fd, &local_port, 4);
       send(fd, SYNC, &id, NULL, 0);
       delete tmp;
    }
@@ -83,6 +90,18 @@ void Node::init() {
 }
 
 void Node::newNode(Each_link *el) {
+   updateLeafSetWithNewNode(el);
+   updateRouteTableWithNewNode(el);
+}
+
+void Node::updateLeafSetWithNewNode(Each_link *el) {
+   ID *t_id = new ID();
+   t_id->ip = el->ip;
+   t_id->port = el->port;
+   ID::defaultMakeID(t_id);
+}
+
+void Node::updateRouteTableWithNewNode(Each_link *el) {
 }
 
 void *test(void *arg) {
@@ -102,8 +121,8 @@ void *test(void *arg) {
 }
 
 void Node::boot() {
-   pthread_t pid;
-   pthread_create(&pid, NULL, test, this);
+   //pthread_t pid;
+   //pthread_create(&pid, NULL, test, this);
    links->poll(this);
 }
 
@@ -168,6 +187,7 @@ void Node::processNetworkMsg(char *buf, int len) {
          delete key;
          break;
       }
+
    case FW_RESP:
       {
          printf("recv a FW_RESP op [%s:%d]\n", src->ip.c_str(), src->port);
@@ -175,13 +195,92 @@ void Node::processNetworkMsg(char *buf, int len) {
             push(src, NULL);
          } else { // the RESP is received by client.
             // TODO: some other strategy should be added.
-            saveMsg(extra_msg, strlen(extra_msg));
+            if (status == 0) 
+               saveMsg(extra_msg, strlen(extra_msg));
+            else if (status == 2){ // means the RESP is a SYNC info.
+               send(getFdByNodeId(src), SYNC_RT, &id, NULL, 0);
+            }
          }
          break;
       }
+
    case SYNC:
       {
          printf("recv a SYNC op [%s:%d]\n", src->ip.c_str(), src->port);
+         int fd = lookupKey(src);
+         printf("after lookupKey, the ret fd : [%d]\n", fd);
+         status = 2;
+         if (fd == 0) {
+            // imposible.
+         } else if (fd == -1){
+            // wait FW_RESP.
+         } else {
+         }
+         break;
+      }
+   case SYNC_RT:
+      { 
+         printf("recv a SYNC_RT op [%s:%d]\n", src->ip.c_str(), src->port);
+         char msg[1024] = {0};
+         int offset = 0;
+         int leaf_len = leaf_set.size();
+         memcpy(msg, &leaf_len, 4);
+         offset += 4;
+         for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) { 
+            offset = serialize(*i, msg + offset);
+         }
+
+         for (int i = 0; i < BIT_NUM; ++i) {
+            for (int j = 0; j < b; ++i) {
+               offset = serialize(rtable[i][j], msg + offset);
+            }
+         }
+         printf("SYNC rtable and leaf_set total len : %d\n", offset);
+         send(getFdByNodeId(src), SYNC_RT_BACK, &id, msg, offset);
+
+         break;
+      }
+   case SYNC_RT_BACK:
+      {
+         printf("recv a SYNC_RT_BACK op [%s:%d]\n", src->ip.c_str(), src->port); 
+         printf("Updating Route Table and Leaf set.\n");
+         int offset = 0, binary = 0;
+         int leaf_len = -1;
+         memcpy(&leaf_len, extra_msg + offset, 4);
+         offset += 4;
+         for (int i = 0; i < leaf_len; ++i) {
+            ID *newID = new ID();
+            offset = deserialize(extra_msg + offset, newID);
+            leaf_set.push_back(newID);
+         }
+         //for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
+         //}
+
+         for (int i = 0; i < BIT_NUM; ++i)
+            for (int j = 0; j < b; ++j)
+               offset = deserialize(extra_msg + offset, rtable[i][j]); 
+
+         for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i, binary++) { 
+            if ((*i)->bigger(&id)) {
+               leaf_set.insert(i, &id);
+               break;
+            }
+         }
+         ID *newID = new ID(id);
+         if (binary == l) {
+            delete leaf_set.back();
+            leaf_set.push_back(newID);
+         } else if (binary < l / 2){ 
+            leaf_set.erase(leaf_set.begin());
+         } else {
+            leaf_set.erase(leaf_set.end());
+         }
+
+         for (int i = 0; i < BIT_NUM; ++i) {
+            int index = id.position(i);
+            rtable[i][index]->copy(id);
+         }
+
          break;
       }
    default:
@@ -227,23 +326,24 @@ void Node::push(ID *key, char *message) {
 }
 
 void Node::pull(ID *key) {
-   lookup(key);
+   int fd = lookup(key);
 }
 
 /*
  * core route algorithm of pastry
  */
-void Node::route(ID *key) {
+ID *Node::route(ID *key) {
    int p = id.sha_pref(key);
-   int v = key->position(p - 1);
+   int v = key->position(p);
 
    if (rtable[p][v]->notNull()) {
+      //return rtable[p][v];
       forward(rtable[p][v], key);
    } else {
       int min_dis = INT_MAX;
       int pos = -1;
       for (int i = 0; i < BIT_NUM; ++i) {
-         if (!rtable[p][i]->notNull()) {
+         if (rtable[p][i]->notNull() && !rtable[p][i]->addrEqual(&id)) {
             int dis = rtable[p][i]->distance(key);
             if (dis < min_dis) {
                pos = i;
@@ -251,62 +351,74 @@ void Node::route(ID *key) {
             }
          }
       }
-      forward(rtable[p][pos], key);
+      //return rtable[p][pos];
+      if (pos != -1) forward(rtable[p][pos], key);
+      else printf("error occurs with leaf set and route table\n");
    }
+   return NULL;
 }
 
 int Node::lookupKey(ID *key) {
    /* check whether the key is in the leaf set */
-   if (key->bigger(&leaf_set[0]) && key->bigger(&leaf_set[leaf_set.size() - 1])) {
-      int closest = -1;
+   if (key->bigger(*leaf_set.begin()) && !key->bigger(*(--leaf_set.end()))) {
+      ID *closest = NULL;
       int min_dis = INT_MAX;
-      for (size_t i = 0; i < leaf_set.size(); ++i) {
-         int dis = key->distance(&leaf_set[i]);
+      for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
+         int dis = key->distance(*i);
          if (dis < min_dis) {
-            closest = i;
+            closest = *i;
             min_dis = dis;
          }
       }
-      if (leaf_set[closest].addrEqual(&id)) {
-
+      if (closest->addrEqual(&id)) { 
+         return 0;
+      } else {
+         return getFdByNodeId(closest);
       }
-      forward(&leaf_set[closest], key);
-      return -1;
-   } 
+   }
+   printf("the key is not in the leaf_set. key : [%s:%d:%d].\n", key->ip.c_str(), key->port, key->id);
+   route(key);
+
+   return -1;
 }
 
 int Node::lookup(ID *key, bool server) { 
    unuse(&server);
-   /* check whether the key is controled by myself. */
-   map<ID *, string >::iterator it = keys.find(key);
    int fd = -1;
-   if (it != keys.end()) {
-      if (key->ip.compare(local_ip) && key->port == local_port) {
-         fd = 0;
-         // the key is localed.
-      } else {
-         fd = links->find(key->ip, key->port);
-         if (fd == -1) {
-            printf("The reason goes here, key[ip:%s,port%d,id:%d]\n", key->ip.c_str(), key->port, key->id);
-            //links->addNewNode(key->ip, key->port);
-            //fd = links->find(key->ip, key->port);
+   /* check whether the key is controled by myself. */
+   if (!server) {
+      map<ID *, string >::iterator it = keys.find(key);
+      if (it != keys.end()) {
+         if (key->ip.compare(local_ip) && key->port == local_port) {
+            fd = 0;
+            // the key is localed.
+         } else {
+            fd = links->find(key->ip, key->port);
+            if (fd == -1) {
+               printf("The reason goes here, key[ip:%s,port%d,id:%d]\n", key->ip.c_str(), key->port, key->id);
+               //links->addNewNode(key->ip, key->port);
+               //fd = links->find(key->ip, key->port);
+            }
          }
+         return fd;
       }
-      return fd;
    }
 
    /* check whether the key is in the leaf set */
-   if (key->bigger(&leaf_set[0]) && key->bigger(&leaf_set[leaf_set.size() - 1])) {
-      int closest = -1;
+   if (key->bigger(*leaf_set.begin()) && !key->bigger(*(--leaf_set.end()))) {
+      ID *closest = NULL;
       int min_dis = INT_MAX;
-      for (size_t i = 0; i < leaf_set.size(); ++i) {
-         int dis = key->distance(&leaf_set[i]);
+      for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
+         int dis = key->distance(*i);
          if (dis < min_dis) {
-            closest = i;
+            closest = *i;
             min_dis = dis;
          }
       }
-      forward(&leaf_set[closest], key);
+      if (closest->addrEqual(&id)) { 
+         return 0;
+      }
+      forward(closest, key);
       return -1;
    }
 
@@ -315,12 +427,9 @@ int Node::lookup(ID *key, bool server) {
    return -1;
 }
 
-void Node::forward(ID *id, ID *key) {
-   int fd = links->find(id->ip, id->port);
-   char msg[64] = {0};
-   int len = 1 + 4 + key->ip.length() + 4;
-   sprintf(msg, "%d%c%d%s%d%d", len, FORWARD, (int)key->ip.length(), key->ip.c_str(), key->port, key->id);
-   write(fd, msg, len + 4);
+void Node::forward(ID *_id, ID *key) {
+   int fd = links->find(_id->ip, _id->port);
+   send(fd, FORWARD, key, NULL, 0);
 }
 
 void Node::nodesDiscoveryAlg() {
@@ -332,7 +441,7 @@ void Node::saveMsg(char *msg, int len) {
    ID *key = (ID *)malloc(sizeof(*key));
    ID::makeID(_msg, key);
    keys.insert(pair<ID *,  string >(key, _msg));
-} 
+}
 
 void Node::send(ID *des, char op, ID *src, char *message, int msg_len) {
    int fd = getFdByNodeId(des);
@@ -348,6 +457,10 @@ void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
 }
 
 void Node::encode(char op, ID *src, char *extra_msg, int msg_len) {
+   unuse(&op);
+   unuse(src);
+   unuse(extra_msg);
+   unuse(&msg_len);
 }
 
 void Node::decode(char *data, char &op, ID *target, char *extra_msg) {
@@ -397,6 +510,36 @@ void Node::assert(bool assert, char *str) {
       printf("%s\n", str);
       exit(-1);
    }
+}
+
+int Node::serialize(ID *t_id, char *msg) {
+   int offset = 0;
+   int ip_len = t_id->ip.length();
+   memcpy(msg + offset, &ip_len, 4);
+   offset += 4;
+   memcpy(msg + offset, t_id->ip.c_str(), ip_len);
+   offset += ip_len;
+   memcpy(msg + offset, &t_id->port, 4);
+   offset += 4;
+   memcpy(msg + offset, &t_id->id, 4);
+   offset += 4;
+   return offset;
+}
+
+int Node::deserialize(char *src, ID *t_id) {
+   int offset = 0;
+   char ip[32] = {0};
+   int ip_len = 0;
+   memcpy(&ip_len, src + offset, 4);
+   offset += 4;
+   memcpy(ip, src + offset, ip_len);
+   offset += ip_len;
+   t_id->ip = ip;
+   memcpy(&t_id->port, src + offset, 4);
+   offset += 4;
+   memcpy(&t_id->id, src + offset, 4);
+   offset += 4;
+   return offset;
 }
 
 void unuse(void *) {}

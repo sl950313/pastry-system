@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <list>
 #include "link.h"
 #include "sha1.hpp"
 
@@ -52,7 +53,7 @@ struct ID {
       int res = 0;
       int src_id = id, des_id = other->id;
       for (int i = 0; i < b; ++i) {
-         if (src_id % 4 == des_id % 4) {
+         if ((src_id % 4) == (des_id % 4)) {
             res++;
          } else {
             break;
@@ -64,7 +65,7 @@ struct ID {
    }
 
    bool notNull() {
-      return id == -1;
+      return id != -1;
    }
 
    int pow(int n, int c) {
@@ -77,6 +78,13 @@ struct ID {
 
    bool addrEqual(ID *other) {
       return ip.compare(other->ip) == 0 && port == other->port;
+   }
+
+   static void defaultMakeID(ID *target) {
+      char str[256] = {0};
+      sprintf(str, "%s:%d", target->ip.c_str(), target->port);
+      string s = str;
+      makeID(s, target);
    }
 
    static void makeID(string &str, ID *target) {
@@ -103,7 +111,7 @@ public:
    
    //virtual int enterRing();
 
-   void route(void *msg, int key);
+   ID *route(void *msg, int key);
    void deliver(void *msg, int key);
    void init();
    void boot();
@@ -127,7 +135,11 @@ private:
    ID id;
 
    /* leaf set */
-   vector<ID> leaf_set;
+   //vector<ID> leaf_set;
+   //ID **leaf_set;
+   list<ID *> leaf_set;
+   int right;
+   int left;
 
    /* routing table */
    ID ***rtable;
@@ -146,7 +158,7 @@ private:
    int getFdByNodeId(ID *id);
    int lookup(ID *key, bool serv = false);
    void forward(ID *id, ID *key);
-   void route(ID *key);
+   ID *route(ID *key);
    //int sha_pref(ID *key);
    void saveMsg(char *msg, int len);
    //void makeMsg(ID *id, ID *key, char op);
@@ -155,6 +167,12 @@ private:
 
    void encode(char op, ID *src, char *extra_msg, int msg_len);
    void decode(char *data, char &op, ID *target, char *extra_msg);
+
+   int serialize(ID *t_id, char *target);
+   int deserialize(char *src, ID *t_id);
+
+   void updateLeafSetWithNewNode(Each_link *el);
+   void updateRouteTableWithNewNode(Each_link *el);
 
    int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
 };
