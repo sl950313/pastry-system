@@ -24,6 +24,8 @@ Node::Node(int _role, string ip, int port, string servip, int servp) {
    l = 4;
    right = 1;
    left = 0;
+   s = l / 2;
+   f = l / 2;
    local_ip = ip;
    local_port = port;
    serv_ip = servip;
@@ -37,8 +39,9 @@ Node::Node(int _role, string ip, int port, string servip, int servp) {
 
 Node::~Node() {
    delete links;
-   for (list<ID *>::iterator it = leaf_set.begin(); it != leaf_set.end(); ++it)
-      delete *it;
+   for (int i = 0; i < l; ++i)
+      delete leaf_set[i];
+   delete leaf_set;
    for (int i = 0; i < BIT_NUM; ++i) {
       for (int j = 0; j < b; ++j)
          delete rtable[i][j];
@@ -56,7 +59,10 @@ void Node::init() {
    links = new Link(local_ip, local_port);
    links->listen();
 
-   leaf_set.push_back(&id);
+   leaf_set = (ID **)malloc(sizeof(ID *) * l);
+   for (int i = 0; i < l; ++i)
+      leaf_set[i] = new ID();
+   leaf_set[l / 2 - 1]->copy(id);
    rtable = (ID ***)malloc(sizeof(ID **) * BIT_NUM);
    for (int i = 0; i < BIT_NUM; ++i) {
       //rtable[i] = new ID();
@@ -83,6 +89,7 @@ void Node::init() {
       int fd = getFdByNodeId(tmp);
       write(fd, &local_port, 4);
       send(fd, SYNC, &id, NULL, 0);
+      status = 2;
       delete tmp;
    }
 
@@ -99,9 +106,47 @@ void Node::updateLeafSetWithNewNode(Each_link *el) {
    t_id->ip = el->ip;
    t_id->port = el->port;
    ID::defaultMakeID(t_id);
+   if (t_id->bigger(&id)) {
+      for (int i = l / 2 + 1; i < l; ++i) {
+         if (!leaf_set[i]->notNull()) {
+            leaf_set[i]->copy(*t_id);
+            f++;
+         } else if (leaf_set[i]->bigger(t_id)) { 
+            for (int j = i + 1; j < l; ++j) {
+               leaf_set[j]->copy(*leaf_set[j - 1]);
+            }
+            leaf_set[i]->copy(*t_id);
+            f++;
+         }
+      }
+   } else {
+      for (int i = l / 2 - 1; i >= 0; --i) {
+         if (!leaf_set[i]->notNull()) {
+            leaf_set[i]->copy(*t_id);
+            s--;
+         } else if (!leaf_set[i]->bigger(t_id)) { 
+            for (int j = i - 1; j >= 0; --j) {
+               leaf_set[j]->copy(*leaf_set[j + 1]);
+            }
+            leaf_set[i]->copy(*t_id);
+            s--;
+         }
+      }
+   }
+   delete t_id;
 }
 
-void Node::updateRouteTableWithNewNode(Each_link *el) {
+void Node::updateRouteTableWithNewNode(Each_link *el) { 
+   ID *t_id = new ID();
+   t_id->ip = el->ip;
+   t_id->port = el->port;
+   ID::defaultMakeID(t_id); 
+   int p = id.sha_pref(t_id);
+   int v = t_id->position(p);
+
+   if (!rtable[p][v]->notNull()) {
+      rtable[p][v]->copy(*t_id);
+   }
 }
 
 void *test(void *arg) {
@@ -215,6 +260,7 @@ void Node::processNetworkMsg(char *buf, int len) {
          } else if (fd == -1){
             // wait FW_RESP.
          } else {
+            // 
          }
          break;
       }
@@ -223,11 +269,8 @@ void Node::processNetworkMsg(char *buf, int len) {
          printf("recv a SYNC_RT op [%s:%d]\n", src->ip.c_str(), src->port);
          char msg[1024] = {0};
          int offset = 0;
-         int leaf_len = leaf_set.size();
-         memcpy(msg, &leaf_len, 4);
-         offset += 4;
-         for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) { 
-            offset = serialize(*i, msg + offset);
+         for (int i = 0; i < l; ++i) {
+            offset = serialize(leaf_set[i], msg + offset);
          }
 
          for (int i = 0; i < BIT_NUM; ++i) {
@@ -244,42 +287,16 @@ void Node::processNetworkMsg(char *buf, int len) {
       {
          printf("recv a SYNC_RT_BACK op [%s:%d]\n", src->ip.c_str(), src->port); 
          printf("Updating Route Table and Leaf set.\n");
-         int offset = 0, binary = 0;
-         int leaf_len = -1;
-         memcpy(&leaf_len, extra_msg + offset, 4);
-         offset += 4;
-         for (int i = 0; i < leaf_len; ++i) {
-            ID *newID = new ID();
-            offset = deserialize(extra_msg + offset, newID);
-            leaf_set.push_back(newID);
+         int offset = 0;
+         for (int i = 0; i < l; ++i) {
+            offset = deserialize(extra_msg + offset, leaf_set[i]);
          }
-         //for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
-         //}
+         correctLeafSet();
 
          for (int i = 0; i < BIT_NUM; ++i)
             for (int j = 0; j < b; ++j)
                offset = deserialize(extra_msg + offset, rtable[i][j]); 
-
-         for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i, binary++) { 
-            if ((*i)->bigger(&id)) {
-               leaf_set.insert(i, &id);
-               break;
-            }
-         }
-         ID *newID = new ID(id);
-         if (binary == l) {
-            delete leaf_set.back();
-            leaf_set.push_back(newID);
-         } else if (binary < l / 2){ 
-            leaf_set.erase(leaf_set.begin());
-         } else {
-            leaf_set.erase(leaf_set.end());
-         }
-
-         for (int i = 0; i < BIT_NUM; ++i) {
-            int index = id.position(i);
-            rtable[i][index]->copy(id);
-         }
+         correctRouteTable(); 
 
          break;
       }
@@ -288,6 +305,47 @@ void Node::processNetworkMsg(char *buf, int len) {
       break;
    }
    delete src;
+}
+
+void Node::correctRouteTable() {
+   for (int i = 0; i < BIT_NUM; ++i) {
+      int index = id.position(i);
+      rtable[i][index]->copy(id);
+   }
+}
+
+void Node::correctLeafSet() { 
+   leaf_set[l / 2 - 1]->copy(id);
+   int index = -1;
+   for (int i = 0; i < l / 2 - 1; ++i) {
+      if (leaf_set[i]->id >= id.id) {
+         index = i;
+         break;
+      }
+   }
+   if (index != -1) {
+      for (int i = index; i >= 0; --i) {
+         leaf_set[l / 2 - 1 - index + i]->copy(*leaf_set[i]);
+      }
+      for (int i = 0; i < l / 2 - 1 - index; ++i) {
+         leaf_set[i]->id = -1;
+      } 
+   }
+   index = -1; 
+   for (int i = 1; i < l / 2 - 1; ++i) {
+      if (leaf_set[l / 2 + i]->id > id.id) {
+         index = l / 2 + i;
+         break;
+      }
+   }
+   if (index != -1 && index != 1) {
+      for (int i = l / 2 + 1; i < l - index + l / 2; ++i) {
+         leaf_set[i]->copy(*leaf_set[i - l / 2 - 1 + index]);
+      }
+      for (int i = l - index + l / 2; i < l; ++i) {
+         leaf_set[i]->id = -1;
+      }
+   }
 }
 
 /*
@@ -358,15 +416,62 @@ ID *Node::route(ID *key) {
    return NULL;
 }
 
-int Node::lookupKey(ID *key) {
-   /* check whether the key is in the leaf set */
-   if (key->bigger(*leaf_set.begin()) && !key->bigger(*(--leaf_set.end()))) {
+ID *Node::lookupLeafSet(ID *key) {
+   for (int i = 0; i < l; ++i) {
+      if (leaf_set[i]->notNull()) {
+         s = i;
+         break;
+      }
+   }
+   for (int i = l - 1; i >= 0; --i) {
+      if (leaf_set[i]->notNull()) {
+         f = i;
+         break;
+      }
+   }
+   if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
       ID *closest = NULL;
       int min_dis = INT_MAX;
-      for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
-         int dis = key->distance(*i);
+      for (int i = 0; i < l; ++i) {
+         if (key->addrEqual(leaf_set[i])) continue;
+         int dis = key->distance(leaf_set[i]);
          if (dis < min_dis) {
-            closest = *i;
+            closest = leaf_set[i];
+            min_dis = dis;
+         }
+      }
+      if (closest->addrEqual(&id)) { 
+         return 0;
+      } else {
+         return (closest);
+      }
+   }
+   printf("the key is not in the leaf_set. key : [%s:%d:%d].\n", key->ip.c_str(), key->port, key->id);
+   return NULL;
+}
+
+int Node::lookupKey(ID *key) {
+   /* check whether the key is in the leaf set */
+   for (int i = 0; i < l; ++i) {
+      if (leaf_set[i]->notNull()) {
+         s = i;
+         break;
+      }
+   }
+   for (int i = l - 1; i >= 0; --i) {
+      if (leaf_set[i]->notNull()) {
+         f = i;
+         break;
+      }
+   }
+   if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
+      ID *closest = NULL;
+      int min_dis = INT_MAX;
+      for (int i = 0; i < l; ++i) {
+         if (key->addrEqual(leaf_set[i])) continue;
+         int dis = key->distance(leaf_set[i]);
+         if (dis < min_dis) {
+            closest = leaf_set[i];
             min_dis = dis;
          }
       }
@@ -405,13 +510,25 @@ int Node::lookup(ID *key, bool server) {
    }
 
    /* check whether the key is in the leaf set */
-   if (key->bigger(*leaf_set.begin()) && !key->bigger(*(--leaf_set.end()))) {
+   for (int i = 0; i < l; ++i) {
+      if (leaf_set[i]->notNull()) {
+         s = i;
+         break;
+      }
+   }
+   for (int i = l - 1; i >= 0; --i) {
+      if (leaf_set[i]->notNull()) {
+         f = i;
+         break;
+      }
+   }
+   if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
       ID *closest = NULL;
       int min_dis = INT_MAX;
-      for (list<ID *>::iterator i = leaf_set.begin(); i != leaf_set.end(); ++i) {
-         int dis = key->distance(*i);
+      for (int i = 0; i < l; ++i) {
+         int dis = key->distance(leaf_set[i]);
          if (dis < min_dis) {
-            closest = *i;
+            closest = leaf_set[i];
             min_dis = dis;
          }
       }
@@ -483,22 +600,22 @@ void Node::decode(char *data, char &op, ID *target, char *extra_msg) {
    data += 4;
    extra_msg = data;
    /*
-   switch (op) {
-   case FORWARD:
+      switch (op) {
+      case FORWARD:
       { 
-         int len = 0;
-         memcpy(&len, data, 4);
-         char ip[32] = {0};
-         memcpy(ip, data + 4, len);
-         target->ip = ip;
-         memcpy(&target->port, data + 4 + len, 4);
-         memcpy(&target->id, data + 4 + len + 4, 4);
-         break;
-      }
-   default:
+      int len = 0;
+      memcpy(&len, data, 4);
+      char ip[32] = {0};
+      memcpy(ip, data + 4, len);
+      target->ip = ip;
+      memcpy(&target->port, data + 4 + len, 4);
+      memcpy(&target->id, data + 4 + len + 4, 4);
       break;
-   }
-   */
+      }
+      default:
+      break;
+      }
+    */
 }
 
 int Node::getFdByNodeId(ID *id) {

@@ -135,9 +135,8 @@ private:
    ID id;
 
    /* leaf set */
-   //vector<ID> leaf_set;
-   //ID **leaf_set;
-   list<ID *> leaf_set;
+   ID **leaf_set;
+   int s, f;
    int right;
    int left;
 
@@ -155,6 +154,18 @@ private:
    void nodesDiscoveryAlg();
    //void create
    //ID getNodeByKey(ID *key);
+
+   /*
+    * Lookup key from leaf set and route table
+    * param
+    *    key : the key to be lookup
+    *
+    * return valute:
+    *    ID * : NULL if the key is localed, else the node id where the lookup command should be send to 
+    */
+   ID *lookupLeafSet(ID *key);
+   ID *lookupRouteTable(ID *key);
+
    int getFdByNodeId(ID *id);
    int lookup(ID *key, bool serv = false);
    void forward(ID *id, ID *key);
@@ -173,6 +184,8 @@ private:
 
    void updateLeafSetWithNewNode(Each_link *el);
    void updateRouteTableWithNewNode(Each_link *el);
+   void correctLeafSet();
+   void correctRouteTable();
 
    int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
 };
