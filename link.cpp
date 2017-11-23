@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <glog/logging.h>
 
 #define MAX_NODE 10240
 #define REMAIN 10
@@ -17,7 +18,7 @@
 void Link::listen() {
    int    socket_fd;
    if( (socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ){  
-      printf("create socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      LOG(ERROR) << "create socket error:" << strerror(errno) << "(errno:" << errno << ").";
       exit(0);  
    } 
    struct sockaddr_in     servaddr;  
@@ -27,15 +28,15 @@ void Link::listen() {
    servaddr.sin_port = htons(port);
 
    if( bind(socket_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1){  
-      printf("bind socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      LOG(ERROR) << "bind socket error:" << strerror(errno) << "(errno:" << errno << ").";
       exit(0);  
    }
 
    if(::listen(socket_fd, 10) == -1){  
-      printf("listen socket error: %s(errno: %d)\n",strerror(errno),errno);  
+      LOG(ERROR) << "listen socket error: " << strerror(errno) << ":" << errno;
       exit(0);  
    }  
-   printf("======waiting for client's request======\n");  
+   LOG(INFO) << "======waiting for client's request======";
    listenfd = socket_fd;
 }
 
@@ -54,7 +55,7 @@ void Link::poll(Node *node) {
       if (node->role == 1) { /* Server need more work. */
       }
 
-      if (nfds > 0) printf("%d fd events occure\n", nfds);
+      if (nfds > 0) LOG(INFO) << nfds << " fd events occure";
       for (int i = 0; i < nfds; ++i) {
          if (events[i].data.fd == listenfd) {
             newConnection(node);
@@ -64,7 +65,7 @@ void Link::poll(Node *node) {
                int port = -1;
                int fd = events[i].data.fd;
                read(events[i].data.fd, &port, sizeof(int)); 
-               printf("receive port : %d\n", port);
+               LOG(INFO) << "receive port : " << port;
                links[events[i].data.fd].port = port;
                links[events[i].data.fd].use = true;
                links_map.insert(pair<addr, int>(addr(links[events[i].data.fd].ip, port), fd));
@@ -73,21 +74,21 @@ void Link::poll(Node *node) {
             }
             int nread = read(events[i].data.fd, buf, sizeof(int));
             int len = atoi(buf);
-            printf("nread = [%d], len = [%d]\n", nread, len);
+            LOG(INFO) << "nread = [" << nread << ", len = [" << len << "].";
             memset(buf, 0, 4);
             if (nread == 0) {
                cleaningWork(events[i].data.fd);
                continue;
             }
             if (nread != sizeof(len) && len == -1) {
-               printf("error ocuur\n");
+               LOG(INFO) << "error ocuur";
                continue;
             } else {
                memset(buf, 0, 256);
                nread = read(events[i].data.fd, buf, len);
-               printf("nread=[%d],len=[%d],buf=[%s]\n", nread, len, buf);
+               LOG(INFO) << "nread=[" << nread << "],len=[" << len << "],buf=[" << buf << "].";
                if (nread != len) {
-                  printf("error ocuur\n"); 
+                  LOG(INFO) << "error ocuur"; 
                } else {
                   node->processNetworkMsg(buf, nread);
                }
@@ -120,7 +121,7 @@ bool Link::newConnection(Node *node) {
 
    Each_link el(connfd, ip, port);
    links[connfd] = el;
-   printf("A new connection : [%s:%d]\n", el.ip.c_str(), el.port);
+   LOG(INFO) << "A new connection : [" << el.ip << ":" << el.port << "].";
 
 
    return true;
@@ -131,7 +132,7 @@ int Link::find(string ip, int port) {
    if (it != links_map.end()) {
       return it->second;
    } else {
-      printf("error occure in Link::find[ip:%s,port:%d]\n", ip.c_str(), port);
+      LOG(ERROR) << "error occure in Link::find[ip:" << ip << ",port:" << port << "].";
       return -1;
    }
 }

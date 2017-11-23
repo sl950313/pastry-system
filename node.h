@@ -187,6 +187,9 @@ private:
    void correctLeafSet();
    void correctRouteTable();
 
+   void daemonize();
+   string opToStr(char op);
+
    int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
 };
 

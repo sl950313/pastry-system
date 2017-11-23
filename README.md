@@ -12,6 +12,11 @@ The only interface will push the msg to the total node in the pastry system.
 
 > cd pastry-system && make -j4
 
+# Dependencies
+
+- [sha1](https://github.com/vog/sha1)
+- [google glog](https://github.com/google/glog)
+
 # How To Use 
 
 A main can be written like this:

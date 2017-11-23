@@ -1,13 +1,18 @@
-#include "node.h"
 #include <string.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <glog/logging.h>
+#include <sys/types.h>
+#include "node.h"
 #include "sha1.hpp"
+#include "defines.h"
 
 #define BIT_NUM 4
 
+/*
 #define START_PULL 1
 //#define PUSH 0
 #define FIRST_PUSH 2
@@ -17,6 +22,7 @@
 #define SYNC 32
 #define SYNC_RT 64
 #define SYNC_RT_BACK 65
+*/
 
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
@@ -51,6 +57,13 @@ Node::~Node() {
 }
 
 void Node::init() {
+   //daemonize();
+
+   google::InitGoogleLogging("");
+   google::SetLogDestination(google::INFO, LOG_FILENAME);
+
+   LOG(INFO) << "Google Log System already initial"; 
+
    char tmp[256] = {0};
    sprintf(tmp, "%s:%d", local_ip.c_str(), local_port);
    string t = tmp;
@@ -78,10 +91,10 @@ void Node::init() {
       bool res = links->connect(serv_ip, serv_port);
       //assert(res, "error connect server[%s:%d]");
       if (!res) {
-         printf("error connect server[%s:%d]\n", serv_ip.c_str(), serv_port);
+         LOG(ERROR) << "error connect server[" << serv_ip << ":" << serv_port << "].";
          exit(-1);
       }
-      printf("connect server[%s:%d] success.\n", serv_ip.c_str(), serv_port);
+      LOG(INFO) << "connect server[" << serv_ip << ":" << serv_port << "].";
       // SYNC op.
       ID *tmp = new ID();
       tmp->ip = serv_ip;
@@ -172,7 +185,7 @@ void Node::boot() {
 }
 
 void Node::processNetworkMsg(char *buf, int len) { 
-   printf("recv buf : [%s]\n", buf);
+   LOG(INFO) << "recv buf : [" << buf << "].";
    unuse(&len);
    char op = 0x00;// = buf[0];
    //char *data = buf + 1;
@@ -180,11 +193,11 @@ void Node::processNetworkMsg(char *buf, int len) {
    char *extra_msg = NULL;
    decode(buf, op, src, extra_msg); 
 
+   LOG(INFO) << "recv a " << opToStr(START_PULL) << ":[" << src->ip << ":" << src->port << "].";
    switch (op) {
    case START_PULL:
       {
          //ID *key = (ID *)malloc(sizeof(*key));
-         printf("recv a START_PULL op [%s:%d]\n", src->ip.c_str(), src->port);
          ID *key = new ID();
          memcpy(&key->id, extra_msg, sizeof(int));
          //key->id = (int)extra_msg;
@@ -206,12 +219,10 @@ void Node::processNetworkMsg(char *buf, int len) {
          break;
       }
    case FIRST_PUSH:
-      printf("recv a FIRST_PUSH op [%s:%d]\n", src->ip.c_str(), src->port);
       saveMsg(extra_msg,  strlen(extra_msg));
       break;
    case FORWARD:
       {
-         printf("recv a FORWARD op [%s:%d]\n", src->ip.c_str(), src->port);
          //ID *key = (ID *)malloc(sizeof(*key));
          ID *key = new ID();
          memcpy(&key->id, extra_msg, sizeof(int));
@@ -235,7 +246,6 @@ void Node::processNetworkMsg(char *buf, int len) {
 
    case FW_RESP:
       {
-         printf("recv a FW_RESP op [%s:%d]\n", src->ip.c_str(), src->port);
          if (status == 1) { // means the RESP is received by server.
             push(src, NULL);
          } else { // the RESP is received by client.
@@ -251,9 +261,8 @@ void Node::processNetworkMsg(char *buf, int len) {
 
    case SYNC:
       {
-         printf("recv a SYNC op [%s:%d]\n", src->ip.c_str(), src->port);
          int fd = lookupKey(src);
-         printf("after lookupKey, the ret fd : [%d]\n", fd);
+         LOG(INFO) << "after lookupKey, the ret fd : [" << fd << "].";
          status = 2;
          if (fd == 0) {
             // imposible.
@@ -266,7 +275,6 @@ void Node::processNetworkMsg(char *buf, int len) {
       }
    case SYNC_RT:
       { 
-         printf("recv a SYNC_RT op [%s:%d]\n", src->ip.c_str(), src->port);
          char msg[1024] = {0};
          int offset = 0;
          for (int i = 0; i < l; ++i) {
@@ -278,15 +286,14 @@ void Node::processNetworkMsg(char *buf, int len) {
                offset = serialize(rtable[i][j], msg + offset);
             }
          }
-         printf("SYNC rtable and leaf_set total len : %d\n", offset);
+         LOG(INFO) << "SYNC rtable and leaf_set total len : " << offset;
          send(getFdByNodeId(src), SYNC_RT_BACK, &id, msg, offset);
 
          break;
       }
    case SYNC_RT_BACK:
       {
-         printf("recv a SYNC_RT_BACK op [%s:%d]\n", src->ip.c_str(), src->port); 
-         printf("Updating Route Table and Leaf set.\n");
+         LOG(INFO) << "Updating Route Table and Leaf set.";
          int offset = 0;
          for (int i = 0; i < l; ++i) {
             offset = deserialize(extra_msg + offset, leaf_set[i]);
@@ -301,7 +308,6 @@ void Node::processNetworkMsg(char *buf, int len) {
          break;
       }
    default:
-      printf("pastry recerive other msg[%s], just print!\n", buf);
       break;
    }
    delete src;
@@ -411,7 +417,7 @@ ID *Node::route(ID *key) {
       }
       //return rtable[p][pos];
       if (pos != -1) forward(rtable[p][pos], key);
-      else printf("error occurs with leaf set and route table\n");
+      else LOG(INFO) << "error occurs with leaf set and route table";
    }
    return NULL;
 }
@@ -446,7 +452,7 @@ ID *Node::lookupLeafSet(ID *key) {
          return (closest);
       }
    }
-   printf("the key is not in the leaf_set. key : [%s:%d:%d].\n", key->ip.c_str(), key->port, key->id);
+   LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
    return NULL;
 }
 
@@ -481,7 +487,7 @@ int Node::lookupKey(ID *key) {
          return getFdByNodeId(closest);
       }
    }
-   printf("the key is not in the leaf_set. key : [%s:%d:%d].\n", key->ip.c_str(), key->port, key->id);
+   LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
    route(key);
 
    return -1;
@@ -500,9 +506,7 @@ int Node::lookup(ID *key, bool server) {
          } else {
             fd = links->find(key->ip, key->port);
             if (fd == -1) {
-               printf("The reason goes here, key[ip:%s,port%d,id:%d]\n", key->ip.c_str(), key->port, key->id);
-               //links->addNewNode(key->ip, key->port);
-               //fd = links->find(key->ip, key->port);
+               LOG(INFO) << "No reason goes here, key[ip:" << key->ip << ",port:" << key->port << ",id:" << key->id << "].";
             }
          }
          return fd;
@@ -570,7 +574,7 @@ void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
    int len = 1 + 1 + keyorId->ip.length() + 4 + 4 + 4 + msg_len;
    sprintf(_msg, "%4d%c%c%s%4d%4d%4d%s", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len, msg);
    int nwrite = write(fd, _msg, len + 4); 
-   printf("nwrite = [%d:%s],len=[%d],op=[%d]\n", nwrite, _msg, len, op);
+   LOG(INFO) << "nwrite = [" << nwrite << ":" << _msg << ", len=[" << len << "],op=[" << opToStr(op) << "].";
 }
 
 void Node::encode(char op, ID *src, char *extra_msg, int msg_len) {
@@ -660,3 +664,40 @@ int Node::deserialize(char *src, ID *t_id) {
 }
 
 void unuse(void *) {}
+
+void Node::daemonize() {
+   int fd;
+
+   if (fork() != 0) exit(0);
+   setsid();
+
+   if ((fd = open("/dev/null", O_RDWR, 0)) != -1) {
+      dup2(fd, STDIN_FILENO);
+      dup2(fd, STDOUT_FILENO);
+      dup2(fd, STDERR_FILENO); 
+      if (fd > STDERR_FILENO) close(fd);
+   }
+}
+
+string Node::opToStr(char op) {
+   switch (op) {
+   case START_PULL:
+      return "START_PULL";
+   case FIRST_PUSH:
+      return "FIRST_PUSH";
+   case FORWARD:
+      return "FORWARD";
+   case FW_RESP:
+      return "FW_RESP";
+   case PULL:
+      return "PULL";
+   case SYNC:
+      return "SYNC";
+   case SYNC_RT:
+      return "SYNC_RT";
+   case SYNC_RT_BACK:
+      return "SYNC_RT_BACK";
+   default:
+      return "Unknown";
+   }
+}
