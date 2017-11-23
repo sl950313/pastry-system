@@ -12,6 +12,9 @@
 
 #define LOG_FILENAME "pastry-"
 
+/* For debug mode. */
+#define DEBUG
+
 enum Ops {
    START_PULL,
    FIRST_PUSH,

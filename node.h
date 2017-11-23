@@ -18,6 +18,7 @@ struct ID {
    ID() {
       id = -1;
       b = 4;
+      port = -1;
    }
    int id; /* 0 < id < 256 = 8 * 16 */
 
@@ -150,7 +151,7 @@ private:
    map<ID *, string> keys;
 
    void assert(bool assert, char *str);
-   int lookupKey(ID *key);
+   ID *lookupKey(ID *key);
    void nodesDiscoveryAlg();
    //void create
    //ID getNodeByKey(ID *key);
@@ -186,6 +187,8 @@ private:
    void updateRouteTableWithNewNode(Each_link *el);
    void correctLeafSet();
    void correctRouteTable();
+   void serializeLeafSetAndRouteTable(char *str);
+   void deserializeLeafSetAndRouteTable(char *str);
 
    void daemonize();
    string opToStr(char op);

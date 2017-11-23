@@ -12,18 +12,6 @@
 
 #define BIT_NUM 4
 
-/*
-#define START_PULL 1
-//#define PUSH 0
-#define FIRST_PUSH 2
-#define FORWARD 4
-#define FW_RESP 8
-#define PULL 16
-#define SYNC 32
-#define SYNC_RT 64
-#define SYNC_RT_BACK 65
-*/
-
 Node::Node(int _role, string ip, int port, string servip, int servp) {
    role = (Role)_role;
    b = 4;
@@ -63,6 +51,9 @@ void Node::init() {
    google::SetLogDestination(google::INFO, LOG_FILENAME);
 
    LOG(INFO) << "Google Log System already initial"; 
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
 
    char tmp[256] = {0};
    sprintf(tmp, "%s:%d", local_ip.c_str(), local_port);
@@ -92,9 +83,15 @@ void Node::init() {
       //assert(res, "error connect server[%s:%d]");
       if (!res) {
          LOG(ERROR) << "error connect server[" << serv_ip << ":" << serv_port << "].";
+#ifdef DEBUG
+         google::FlushLogFiles(google::INFO);
+#endif
          exit(-1);
       }
       LOG(INFO) << "connect server[" << serv_ip << ":" << serv_port << "].";
+#ifdef DEBUG
+      google::FlushLogFiles(google::INFO);
+#endif
       // SYNC op.
       ID *tmp = new ID();
       tmp->ip = serv_ip;
@@ -186,6 +183,9 @@ void Node::boot() {
 
 void Node::processNetworkMsg(char *buf, int len) { 
    LOG(INFO) << "recv buf : [" << buf << "].";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
    unuse(&len);
    char op = 0x00;// = buf[0];
    //char *data = buf + 1;
@@ -193,7 +193,10 @@ void Node::processNetworkMsg(char *buf, int len) {
    char *extra_msg = NULL;
    decode(buf, op, src, extra_msg); 
 
-   LOG(INFO) << "recv a " << opToStr(START_PULL) << ":[" << src->ip << ":" << src->port << "].";
+   LOG(INFO) << "recv a " << opToStr(op) << ":[" << src->ip << ":" << src->port << "].";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
    switch (op) {
    case START_PULL:
       {
@@ -261,56 +264,61 @@ void Node::processNetworkMsg(char *buf, int len) {
 
    case SYNC:
       {
-         int fd = lookupKey(src);
-         LOG(INFO) << "after lookupKey, the ret fd : [" << fd << "].";
-         status = 2;
-         if (fd == 0) {
-            // imposible.
-         } else if (fd == -1){
-            // wait FW_RESP.
+         ID *node = lookupKey(src);
+         LOG(INFO) << "after lookupKey, the ret node : [ip:" << node->ip << ",port:" << node->port << "].";
+#ifdef DEBUG
+         google::FlushLogFiles(google::INFO);
+#endif
+         CHECK_NOTNULL(node);
+         if (node->addrEqual(&id)) {
+            char msg[1024] = {0};
+            serializeLeafSetAndRouteTable(msg);
+            send(src, SYNC_RT, &id, msg, strlen(msg));
          } else {
-            // 
+            send(node, SYNC, src, NULL, 0);
          }
          break;
       }
    case SYNC_RT:
-      { 
-         char msg[1024] = {0};
-         int offset = 0;
-         for (int i = 0; i < l; ++i) {
-            offset = serialize(leaf_set[i], msg + offset);
-         }
-
-         for (int i = 0; i < BIT_NUM; ++i) {
-            for (int j = 0; j < b; ++i) {
-               offset = serialize(rtable[i][j], msg + offset);
-            }
-         }
-         LOG(INFO) << "SYNC rtable and leaf_set total len : " << offset;
-         send(getFdByNodeId(src), SYNC_RT_BACK, &id, msg, offset);
-
-         break;
-      }
-   case SYNC_RT_BACK:
       {
-         LOG(INFO) << "Updating Route Table and Leaf set.";
-         int offset = 0;
-         for (int i = 0; i < l; ++i) {
-            offset = deserialize(extra_msg + offset, leaf_set[i]);
-         }
-         correctLeafSet();
-
-         for (int i = 0; i < BIT_NUM; ++i)
-            for (int j = 0; j < b; ++j)
-               offset = deserialize(extra_msg + offset, rtable[i][j]); 
-         correctRouteTable(); 
-
+         deserializeLeafSetAndRouteTable(extra_msg);
          break;
       }
    default:
       break;
    }
    delete src;
+}
+
+void Node::deserializeLeafSetAndRouteTable(char *msg) {
+   LOG(INFO) << "Updating Route Table and Leaf set.";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
+   int offset = 0;
+   for (int i = 0; i < l; ++i) {
+      offset = deserialize(msg + offset, leaf_set[i]);
+   }
+   correctLeafSet();
+
+   for (int i = 0; i < BIT_NUM; ++i)
+      for (int j = 0; j < b; ++j)
+         offset = deserialize(msg + offset, rtable[i][j]); 
+   correctRouteTable(); 
+}
+
+void Node::serializeLeafSetAndRouteTable(char *msg) {
+   int offset = 0;
+   for (int i = 0; i < l; ++i) {
+      offset = serialize(leaf_set[i], msg + offset);
+   }
+
+   for (int i = 0; i < BIT_NUM; ++i) {
+      for (int j = 0; j < b; ++i) {
+         offset = serialize(rtable[i][j], msg + offset);
+      }
+   }
+   LOG(INFO) << "SYNC rtable and leaf_set total len : " << offset;
 }
 
 void Node::correctRouteTable() {
@@ -393,35 +401,6 @@ void Node::pull(ID *key) {
    int fd = lookup(key);
 }
 
-/*
- * core route algorithm of pastry
- */
-ID *Node::route(ID *key) {
-   int p = id.sha_pref(key);
-   int v = key->position(p);
-
-   if (rtable[p][v]->notNull()) {
-      //return rtable[p][v];
-      forward(rtable[p][v], key);
-   } else {
-      int min_dis = INT_MAX;
-      int pos = -1;
-      for (int i = 0; i < BIT_NUM; ++i) {
-         if (rtable[p][i]->notNull() && !rtable[p][i]->addrEqual(&id)) {
-            int dis = rtable[p][i]->distance(key);
-            if (dis < min_dis) {
-               pos = i;
-               min_dis = dis;
-            }
-         }
-      }
-      //return rtable[p][pos];
-      if (pos != -1) forward(rtable[p][pos], key);
-      else LOG(INFO) << "error occurs with leaf set and route table";
-   }
-   return NULL;
-}
-
 ID *Node::lookupLeafSet(ID *key) {
    for (int i = 0; i < l; ++i) {
       if (leaf_set[i]->notNull()) {
@@ -453,44 +432,53 @@ ID *Node::lookupLeafSet(ID *key) {
       }
    }
    LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
+
    return NULL;
 }
 
-int Node::lookupKey(ID *key) {
-   /* check whether the key is in the leaf set */
-   for (int i = 0; i < l; ++i) {
-      if (leaf_set[i]->notNull()) {
-         s = i;
-         break;
-      }
-   }
-   for (int i = l - 1; i >= 0; --i) {
-      if (leaf_set[i]->notNull()) {
-         f = i;
-         break;
-      }
-   }
-   if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
-      ID *closest = NULL;
-      int min_dis = INT_MAX;
-      for (int i = 0; i < l; ++i) {
-         if (key->addrEqual(leaf_set[i])) continue;
-         int dis = key->distance(leaf_set[i]);
+ID *Node::lookupRouteTable(ID *key) {
+   int p = id.sha_pref(key);
+   int v = key->position(p);
+
+   if (rtable[p][v]->notNull()) {
+      //return rtable[p][v];
+      //forward(rtable[p][v], key);
+      if (!rtable[p][v]->addrEqual(&id))
+         return rtable[p][v];
+   } 
+   int min_dis = INT_MAX;
+   int pos = -1;
+   for (int i = 0; i < BIT_NUM; ++i) {
+      if (rtable[p][i]->notNull() && !rtable[p][i]->addrEqual(&id)) {
+         int dis = rtable[p][i]->distance(key);
          if (dis < min_dis) {
-            closest = leaf_set[i];
+            pos = i;
             min_dis = dis;
          }
       }
-      if (closest->addrEqual(&id)) { 
-         return 0;
-      } else {
-         return getFdByNodeId(closest);
-      }
    }
-   LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
-   route(key);
+   if (pos != -1) {
+      //forward(rtable[p][pos], key);
+      return rtable[p][pos];
+   }
+   LOG(INFO) << "error occurs with leaf set and route table";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
+   return NULL;
+}
 
-   return -1;
+ID *Node::lookupKey(ID *key) {
+   /* check whether the key is in the leaf set */
+   ID *node = lookupLeafSet(key);
+   if (node) {
+      return node;
+   } else {
+      return lookupRouteTable(key);
+   }
 }
 
 int Node::lookup(ID *key, bool server) { 
@@ -507,6 +495,9 @@ int Node::lookup(ID *key, bool server) {
             fd = links->find(key->ip, key->port);
             if (fd == -1) {
                LOG(INFO) << "No reason goes here, key[ip:" << key->ip << ",port:" << key->port << ",id:" << key->id << "].";
+#ifdef DEBUG
+               google::FlushLogFiles(google::INFO);
+#endif
             }
          }
          return fd;
@@ -548,6 +539,35 @@ int Node::lookup(ID *key, bool server) {
    return -1;
 }
 
+ID *Node::route(ID *key) {
+   int p = id.sha_pref(key);
+   int v = key->position(p);
+
+   if (rtable[p][v]->notNull()) {
+      forward(rtable[p][v], key); 
+   } else {
+      int min_dis = INT_MAX;
+      int pos = -1;
+      for (int i = 0; i < BIT_NUM; ++i) {
+         if (rtable[p][i]->notNull() && !rtable[p][i]->addrEqual(&id)) {
+            int dis = rtable[p][i]->distance(key);
+            if (dis < min_dis) {
+               pos = i;
+               min_dis = dis;
+            }
+         }
+      }
+      if (pos != -1) forward(rtable[p][pos], key);
+      else {
+         LOG(INFO) << "error occurs with leaf set and route table";
+#ifdef DEBUG
+         google::FlushLogFiles(google::INFO);
+#endif
+      }
+   }
+   return NULL;
+}
+
 void Node::forward(ID *_id, ID *key) {
    int fd = links->find(_id->ip, _id->port);
    send(fd, FORWARD, key, NULL, 0);
@@ -575,6 +595,9 @@ void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
    sprintf(_msg, "%4d%c%c%s%4d%4d%4d%s", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len, msg);
    int nwrite = write(fd, _msg, len + 4); 
    LOG(INFO) << "nwrite = [" << nwrite << ":" << _msg << ", len=[" << len << "],op=[" << opToStr(op) << "].";
+#ifdef DEBUG
+   google::FlushLogFiles(google::INFO);
+#endif
 }
 
 void Node::encode(char op, ID *src, char *extra_msg, int msg_len) {

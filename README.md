@@ -16,6 +16,7 @@ The only interface will push the msg to the total node in the pastry system.
 
 - [sha1](https://github.com/vog/sha1)
 - [google glog](https://github.com/google/glog)
+- [protobuf](https://github.com/google/protobuf)
 
 # How To Use 
 
@@ -39,6 +40,7 @@ void main() {
 }
 ```
 
+```
 > make 
 
 > ./pastry role port [serv\_ip] [serv_port] 
@@ -46,5 +48,6 @@ void main() {
 > ./pastry 1 8001 
 
 > ./pastry 0 8002 127.0.0.1 8001
+```
 
 
