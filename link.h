@@ -34,6 +34,7 @@ public:
    Link(string _ip, int _port) {ip = _ip;port = _port;}
    void boot();
    void listen();
+   void init();
    void poll(Node *node);
    int find(string, int);
    

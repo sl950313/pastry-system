@@ -51,6 +51,7 @@ void Node::init() {
    google::SetLogDestination(google::INFO, LOG_FILENAME);
 
    LOG(INFO) << "Google Log System already initial"; 
+   printf("Google Log System already initial\n");
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -61,12 +62,13 @@ void Node::init() {
    ID::makeID(t, &id);
 
    links = new Link(local_ip, local_port);
+   links->init();
    links->listen();
 
    leaf_set = (ID **)malloc(sizeof(ID *) * l);
    for (int i = 0; i < l; ++i)
       leaf_set[i] = new ID();
-   leaf_set[l / 2 - 1]->copy(id);
+   leaf_set[l / 2]->copy(id);
    rtable = (ID ***)malloc(sizeof(ID **) * BIT_NUM);
    for (int i = 0; i < BIT_NUM; ++i) {
       //rtable[i] = new ID();
@@ -78,17 +80,21 @@ void Node::init() {
    }
    nset.resize(l);
 
+   printLeafSetAndRouteTable(0);
+
    if (role == Client) {
       bool res = links->connect(serv_ip, serv_port);
       //assert(res, "error connect server[%s:%d]");
       if (!res) {
          LOG(ERROR) << "error connect server[" << serv_ip << ":" << serv_port << "].";
+         printf("error connect server[%s:%d]\n", serv_ip.c_str(), serv_port);
 #ifdef DEBUG
          google::FlushLogFiles(google::INFO);
 #endif
          exit(-1);
       }
       LOG(INFO) << "connect server[" << serv_ip << ":" << serv_port << "].";
+      printf("connect server[%s:%d]\n", serv_ip.c_str(), serv_port);
 #ifdef DEBUG
       google::FlushLogFiles(google::INFO);
 #endif
@@ -99,7 +105,7 @@ void Node::init() {
       int fd = getFdByNodeId(tmp);
       write(fd, &local_port, 4);
       send(fd, SYNC, &id, NULL, 0);
-      status = 2;
+      //status = 2;
       delete tmp;
    }
 
@@ -183,6 +189,7 @@ void Node::boot() {
 
 void Node::processNetworkMsg(char *buf, int len) { 
    LOG(INFO) << "recv buf : [" << buf << "].";
+   printf("recv buf : [%s]\n", buf);
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -191,9 +198,11 @@ void Node::processNetworkMsg(char *buf, int len) {
    //char *data = buf + 1;
    ID *src = new ID();
    char *extra_msg = NULL;
-   decode(buf, op, src, extra_msg); 
+   int msg_len = 0;
+   decode(buf, op, src, &extra_msg, msg_len); 
 
    LOG(INFO) << "recv a " << opToStr(op) << ":[" << src->ip << ":" << src->port << "].";
+   printf("recv a %s :[%s:%d], [%d:%s]\n", opToStr(op).c_str(), src->ip.c_str(), src->port, msg_len, extra_msg);
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -266,14 +275,15 @@ void Node::processNetworkMsg(char *buf, int len) {
       {
          ID *node = lookupKey(src);
          LOG(INFO) << "after lookupKey, the ret node : [ip:" << node->ip << ",port:" << node->port << "].";
+         printf("after lookupKey, the ret node : [ip:%s,port:%d]\n", node->ip.c_str(), node->port);
 #ifdef DEBUG
          google::FlushLogFiles(google::INFO);
 #endif
          CHECK_NOTNULL(node);
          if (node->addrEqual(&id)) {
             char msg[1024] = {0};
-            serializeLeafSetAndRouteTable(msg);
-            send(src, SYNC_RT, &id, msg, strlen(msg));
+            int len = serializeLeafSetAndRouteTable(msg);
+            send(src, SYNC_RT, &id, msg, len);
          } else {
             send(node, SYNC, src, NULL, 0);
          }
@@ -292,6 +302,7 @@ void Node::processNetworkMsg(char *buf, int len) {
 
 void Node::deserializeLeafSetAndRouteTable(char *msg) {
    LOG(INFO) << "Updating Route Table and Leaf set.";
+   printf("Updating Route Table and Leaf set.\n");
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -305,20 +316,23 @@ void Node::deserializeLeafSetAndRouteTable(char *msg) {
       for (int j = 0; j < b; ++j)
          offset = deserialize(msg + offset, rtable[i][j]); 
    correctRouteTable(); 
+   printLeafSetAndRouteTable(0);
 }
 
-void Node::serializeLeafSetAndRouteTable(char *msg) {
+int Node::serializeLeafSetAndRouteTable(char *msg) {
    int offset = 0;
    for (int i = 0; i < l; ++i) {
       offset = serialize(leaf_set[i], msg + offset);
    }
 
    for (int i = 0; i < BIT_NUM; ++i) {
-      for (int j = 0; j < b; ++i) {
+      for (int j = 0; j < b; ++j) {
          offset = serialize(rtable[i][j], msg + offset);
       }
    }
    LOG(INFO) << "SYNC rtable and leaf_set total len : " << offset;
+   printf("SYNC rtable and leaf_set total len : %d\n", offset);
+   return offset;
 }
 
 void Node::correctRouteTable() {
@@ -417,7 +431,7 @@ ID *Node::lookupLeafSet(ID *key) {
    if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
       ID *closest = NULL;
       int min_dis = INT_MAX;
-      for (int i = 0; i < l; ++i) {
+      for (int i = s; i <= f; ++i) {
          if (key->addrEqual(leaf_set[i])) continue;
          int dis = key->distance(leaf_set[i]);
          if (dis < min_dis) {
@@ -426,12 +440,13 @@ ID *Node::lookupLeafSet(ID *key) {
          }
       }
       if (closest->addrEqual(&id)) { 
-         return 0;
+         return closest;
       } else {
          return (closest);
       }
    }
    LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
+   printf("the key is not in the leaf_set. key : [%s:%d:%d]\n", key->ip.c_str(), key->port, key->id);
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -465,6 +480,7 @@ ID *Node::lookupRouteTable(ID *key) {
       return rtable[p][pos];
    }
    LOG(INFO) << "error occurs with leaf set and route table";
+   printf("error occurs with leaf set and route table\n");
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -495,6 +511,7 @@ int Node::lookup(ID *key, bool server) {
             fd = links->find(key->ip, key->port);
             if (fd == -1) {
                LOG(INFO) << "No reason goes here, key[ip:" << key->ip << ",port:" << key->port << ",id:" << key->id << "].";
+               printf("No reason goes here, key[ip:%s,port:%d,id:%d]\n", key->ip.c_str(), key->port, key->id);
 #ifdef DEBUG
                google::FlushLogFiles(google::INFO);
 #endif
@@ -560,6 +577,7 @@ ID *Node::route(ID *key) {
       if (pos != -1) forward(rtable[p][pos], key);
       else {
          LOG(INFO) << "error occurs with leaf set and route table";
+         printf("error occurs with leaf set and route table\n");
 #ifdef DEBUG
          google::FlushLogFiles(google::INFO);
 #endif
@@ -595,6 +613,7 @@ void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
    sprintf(_msg, "%4d%c%c%s%4d%4d%4d%s", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len, msg);
    int nwrite = write(fd, _msg, len + 4); 
    LOG(INFO) << "nwrite = [" << nwrite << ":" << _msg << ", len=[" << len << "],op=[" << opToStr(op) << "].";
+   printf("nwrite = [%d:%s], len=[%d], op=[%s]\n", nwrite, _msg, len, opToStr(op).c_str());
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
 #endif
@@ -607,7 +626,7 @@ void Node::encode(char op, ID *src, char *extra_msg, int msg_len) {
    unuse(&msg_len);
 }
 
-void Node::decode(char *data, char &op, ID *target, char *extra_msg) {
+void Node::decode(char *data, char &op, ID *target, char **extra_msg, int &msg_len) {
    op = data[0];
    data++;
    int ip_len = data[0];
@@ -623,9 +642,10 @@ void Node::decode(char *data, char &op, ID *target, char *extra_msg) {
    memcpy(tmp, data, 4);
    target->id = atoi(tmp);
    data += 4;
-   //int msg_len = ((int *)data)[0];
+   memcpy(tmp, data, 4);
+   msg_len = atoi(tmp);
    data += 4;
-   extra_msg = data;
+   *extra_msg = data;
    /*
       switch (op) {
       case FORWARD:
@@ -722,5 +742,20 @@ string Node::opToStr(char op) {
       return "SYNC_RT_BACK";
    default:
       return "Unknown";
+   }
+}
+
+void Node::printLeafSetAndRouteTable(int fd) {
+   unuse(&fd);
+   printf("----------Leaf Set Info---------\n");
+   for (int i = 0; i < l; ++i) {
+      printf("[ip:%s   port:%d   id:%d]\n", leaf_set[i]->ip.c_str(), leaf_set[i]->port, leaf_set[i]->id);
+   }
+   printf("----------Route Table Info-------\n");
+   for (int i = 0; i < BIT_NUM; ++i) {
+      for (int j = 0; j < b; ++j) {
+         printf("[ip:%s   port:%d   id:%d]\t", rtable[i][j]->ip.c_str(), rtable[i][j]->port, rtable[i][j]->id);
+      }
+      printf("\n");
    }
 }

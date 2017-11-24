@@ -178,7 +178,7 @@ private:
    void send(ID *des, char op, ID *src, char *message, int msg_len);
 
    void encode(char op, ID *src, char *extra_msg, int msg_len);
-   void decode(char *data, char &op, ID *target, char *extra_msg);
+   void decode(char *data, char &op, ID *target, char **extra_msg, int &msg_len);
 
    int serialize(ID *t_id, char *target);
    int deserialize(char *src, ID *t_id);
@@ -187,13 +187,15 @@ private:
    void updateRouteTableWithNewNode(Each_link *el);
    void correctLeafSet();
    void correctRouteTable();
-   void serializeLeafSetAndRouteTable(char *str);
+   int serializeLeafSetAndRouteTable(char *str);
    void deserializeLeafSetAndRouteTable(char *str);
 
    void daemonize();
    string opToStr(char op);
 
    int status; // 0->1 PUSH_LOOKUP_NODE -> PUSH_KEY
+
+   void printLeafSetAndRouteTable(int fd);
 };
 
 class Server : public Node {
