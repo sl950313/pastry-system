@@ -97,7 +97,10 @@ void Link::poll(Node *node) {
 #endif
                links[events[i].data.fd].port = port;
                links[events[i].data.fd].use = true;
-               links_map.insert(pair<addr, int>(addr(links[events[i].data.fd].ip, port), fd));
+               pair<map<addr, int>::iterator, bool> ret = links_map.insert(pair<addr, int>(addr(links[events[i].data.fd].ip, port), fd));
+               if (ret.second == false) {
+                  printf("element %s:%d already existed\n", links[events[i].data.fd].ip.c_str(), port);
+               }
                node->newNode(&links[events[i].data.fd]);
                continue;
             }

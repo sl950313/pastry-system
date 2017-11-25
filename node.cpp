@@ -105,6 +105,7 @@ void Node::init() {
       int fd = getFdByNodeId(tmp);
       write(fd, &local_port, 4);
       send(fd, SYNC, &id, NULL, 0);
+      printLeafSetAndRouteTable(0);
       //status = 2;
       delete tmp;
    }
@@ -283,6 +284,8 @@ void Node::processNetworkMsg(char *buf, int len) {
          if (node->addrEqual(&id)) {
             char msg[1024] = {0};
             int len = serializeLeafSetAndRouteTable(msg);
+            printf("-------After send SYNC_RT command-----\n");
+            printLeafSetAndRouteTable(1);
             send(src, SYNC_RT, &id, msg, len);
          } else {
             send(node, SYNC, src, NULL, 0);
@@ -291,6 +294,10 @@ void Node::processNetworkMsg(char *buf, int len) {
       }
    case SYNC_RT:
       {
+         for (int i = 0; i < msg_len; ++i) {
+            printf("%x,", extra_msg[i]);
+         }
+         printf("\n");
          deserializeLeafSetAndRouteTable(extra_msg);
          break;
       }
@@ -308,28 +315,39 @@ void Node::deserializeLeafSetAndRouteTable(char *msg) {
 #endif
    int offset = 0;
    for (int i = 0; i < l; ++i) {
-      offset = deserialize(msg + offset, leaf_set[i]);
+      offset += deserialize(msg + offset, leaf_set[i]);
    }
+   printf("Before Correct Leaf Set\n");
+   printLeafSetAndRouteTable(0);
    correctLeafSet();
+   printf("After Correct Leaf Set\n");
+   printLeafSetAndRouteTable(0);
 
    for (int i = 0; i < BIT_NUM; ++i)
       for (int j = 0; j < b; ++j)
-         offset = deserialize(msg + offset, rtable[i][j]); 
+         offset += deserialize(msg + offset, rtable[i][j]); 
+   printf("Before Correct Route Table\n");
+   printLeafSetAndRouteTable(0);
    correctRouteTable(); 
+   printf("After Correct Route Table\n");
    printLeafSetAndRouteTable(0);
 }
 
 int Node::serializeLeafSetAndRouteTable(char *msg) {
    int offset = 0;
    for (int i = 0; i < l; ++i) {
-      offset = serialize(leaf_set[i], msg + offset);
+      offset += serialize(leaf_set[i], msg + offset);
    }
 
    for (int i = 0; i < BIT_NUM; ++i) {
       for (int j = 0; j < b; ++j) {
-         offset = serialize(rtable[i][j], msg + offset);
+         offset += serialize(rtable[i][j], msg + offset);
       }
    }
+   for (int i = 0; i < offset; ++i) {
+      printf("%x,", msg[i]);
+   }
+   printf("\n");
    LOG(INFO) << "SYNC rtable and leaf_set total len : " << offset;
    printf("SYNC rtable and leaf_set total len : %d\n", offset);
    return offset;
@@ -343,36 +361,40 @@ void Node::correctRouteTable() {
 }
 
 void Node::correctLeafSet() { 
-   leaf_set[l / 2 - 1]->copy(id);
+   //leaf_set[l / 2]->copy(id);
    int index = -1;
-   for (int i = 0; i < l / 2 - 1; ++i) {
+   for (int i = 0; i < l; ++i) {
       if (leaf_set[i]->id >= id.id) {
          index = i;
          break;
       }
    }
-   if (index != -1) {
-      for (int i = index; i >= 0; --i) {
-         leaf_set[l / 2 - 1 - index + i]->copy(*leaf_set[i]);
+   if (index == -1) index = l;
+   ID *tmpId = new ID();
+   if (index <= l / 2) {
+      for (int i = 0; i < l / 2 - 1 - index; ++i)
+         leaf_set[i]->copy(*tmpId);
+      for (int i = index - 1; i >= 0; --i) {
+         leaf_set[l / 2 - 1 - (index - 1 - i)]->copy(*leaf_set[i]);
       }
-      for (int i = 0; i < l / 2 - 1 - index; ++i) {
-         leaf_set[i]->id = -1;
-      } 
+      for (int i = index + l / 2 - 1; i >= index; --i) {
+         leaf_set[i - (index + l / 2 - 1) + l - 1]->copy(*leaf_set[i]);
+      }
+   } else {
+      for (int i = index - 1 - (l / 2 - 1); i <= index - 1; ++i) {
+         leaf_set[i - (index - l / 2)]->copy(*leaf_set[i]);
+      }
+      for (int i = index; i <= l - 1; ++i) {
+         leaf_set[i - index + l / 2]->copy(*leaf_set[i]);
+      }
+      for (int i = 3 * l / 2 - index; i < l; ++i)
+         leaf_set[i]->copy(*tmpId);
    }
-   index = -1; 
-   for (int i = 1; i < l / 2 - 1; ++i) {
-      if (leaf_set[l / 2 + i]->id > id.id) {
-         index = l / 2 + i;
-         break;
-      }
-   }
-   if (index != -1 && index != 1) {
-      for (int i = l / 2 + 1; i < l - index + l / 2; ++i) {
-         leaf_set[i]->copy(*leaf_set[i - l / 2 - 1 + index]);
-      }
-      for (int i = l - index + l / 2; i < l; ++i) {
-         leaf_set[i]->id = -1;
-      }
+   delete tmpId;
+   if (!leaf_set[l / 2]->addrEqual(&id)) {
+      for (int i = l / 2; i < l - 1; ++i)
+         leaf_set[i + 1]->copy(*leaf_set[i]);
+      leaf_set[l / 2]->copy(id);
    }
 }
 
@@ -608,9 +630,10 @@ void Node::send(ID *des, char op, ID *src, char *message, int msg_len) {
 }
 
 void Node::send(int fd, char op, ID *keyorId, char *msg, int msg_len) {
-   char _msg[64] = {0};
+   char _msg[1024] = {0};
    int len = 1 + 1 + keyorId->ip.length() + 4 + 4 + 4 + msg_len;
-   sprintf(_msg, "%4d%c%c%s%4d%4d%4d%s", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len, msg);
+   sprintf(_msg, "%4d%c%c%s%4d%4d%4d", len, op, (int)keyorId->ip.length(), keyorId->ip.c_str(), keyorId->port, keyorId->id, msg_len);
+   memcpy(_msg + len - msg_len + 4, msg, msg_len);
    int nwrite = write(fd, _msg, len + 4); 
    LOG(INFO) << "nwrite = [" << nwrite << ":" << _msg << ", len=[" << len << "],op=[" << opToStr(op) << "].";
    printf("nwrite = [%d:%s], len=[%d], op=[%s]\n", nwrite, _msg, len, opToStr(op).c_str());

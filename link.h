@@ -22,7 +22,7 @@ struct addr {
    int port;
 
    bool operator<(addr other) const {
-      return ip.compare(other.ip) < 0 && port < other.port;//>>
+      return ip.compare(other.ip) < 0 || ((ip.compare(other.ip) == 0) && port < other.port);
    }
 
 };
