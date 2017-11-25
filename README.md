@@ -8,9 +8,8 @@ The only interface will push the msg to the total node in the pastry system.
 
 # Build
    
-> git clone https://github.com/sl950313/pastry-system
-
-> cd pastry-system && make -j4
+  git clone https://github.com/sl950313/pastry-system
+  cd pastry-system && make -j4
 
 # Dependencies
 
@@ -41,13 +40,10 @@ void main() {
 ```
 
 ```
-> make 
-
-> ./pastry role port [serv\_ip] [serv_port] 
-
-> ./pastry 1 8001 
-
-> ./pastry 0 8002 127.0.0.1 8001
+make 
+./pastry role port [serv\_ip] [serv_port] 
+./pastry 1 8001 
+./pastry 0 8002 127.0.0.1 8001
 ```
 
 
