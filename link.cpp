@@ -17,6 +17,7 @@
 
 void Link::init() {
    epfd = epoll_create(1);
+   expireTime = 0;
 }
 
 void Link::listen() {
@@ -143,7 +144,26 @@ void Link::poll(Node *node) {
             }
          }
       }
+
+      if (node->role == Server) expireWork(node);
    }
+}
+
+void Link::checkConnected(ID *des) {
+    map<addr, int>::iterator it = links_map.find(addr(des->ip, des->port));
+    if (it == links_map.end()) {
+        connect(des->ip, des->port);
+    }
+}
+
+void Link::expireWork(Node *node) { 
+    if (expireTime++ > 10) {
+        ID *key = new ID();
+        string str = "Hello World!";
+        ID::makeID(str, key);
+        node->push(key, (char *)str.c_str());
+        expireTime = 0;
+    }
 }
 
 void Link::cleaningWork(int fd) {

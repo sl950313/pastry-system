@@ -3,6 +3,7 @@
 #include <string>
 #include <map>
 #include "node.h"
+#include "id.h"
 
 using namespace std;
 
@@ -38,6 +39,7 @@ public:
    void poll(Node *node);
    int find(string, int);
    
+   void checkConnected(ID *des);
    bool connect(string &ip, int port);
    Each_link links[10240];
 
@@ -52,6 +54,9 @@ private:
    bool newConnection(Node *node);
    void processNetwork(); 
    void cleaningWork(int fd);
+
+   void expireWork(Node *node);
+   int expireTime;
 };
 
 #endif 
