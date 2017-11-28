@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <glog/logging.h>
 #include <sys/types.h>
 #include "node.h"
@@ -116,6 +117,13 @@ void Node::init() {
 void Node::newNode(Each_link *el) {
     updateLeafSetWithNewNode(el);
     updateRouteTableWithNewNode(el);
+
+    char msg[64] = {0};
+    sprintf(msg, "%s:%d", el->ip.c_str(), el->port);
+    broadcast(NEW_NODE, msg, strlen(msg));
+}
+
+void Node::deleteNode(Each_link *el) {
 }
 
 void Node::updateLeafSetWithNewNode(Each_link *el) {
@@ -190,7 +198,6 @@ void Node::boot() {
 
 void Node::processNetworkMsg(char *buf, int len) { 
     LOG(INFO) << "recv buf : [" << buf << "].";
-    printf("recv buf : [%s]\n", buf);
 #ifdef DEBUG
     google::FlushLogFiles(google::INFO);
 #endif
@@ -213,24 +220,28 @@ void Node::processNetworkMsg(char *buf, int len) {
                 //ID *key = (ID *)malloc(sizeof(*key));
                 ID *key = new ID();
                 memcpy(&key->id, extra_msg, sizeof(int));
-                //key->id = (int)extra_msg;
-                key->ip = local_ip;
-                key->port = local_port;
+                key->id = atoi(extra_msg);
+                printf("key->id = [%d]\n", key->id);
 
+                printKeysMap();
                 char *ret = keyIsLocaled(key);
                 if (ret) { 
+                    printf("The key:[%d] is already pulled. End PULL\n", key->id);
+                    /*
                     links->checkConnected(src); 
                     send(src, FW_RESP, &id, ret, strlen(ret));
-                }
-                ID *des = lookupKey(key);
-                if (des->addrEqual(&id)) {
-                    // the source of key is localed.
-                    // nothing to do.
-                    printf("按道理这里也是不应该跑到的啊!!\n");
+                    */
                 } else {
-                    key->id = id.id;
-                    send(des, FORWARD, src, (char *)&key->id, 4);
-                    // the source is localed on node with filescription fd.
+                    ID *des = lookupKey(key);
+                    if (des->addrEqual(&id)) {
+                        // the source of key is localed.
+                        // nothing to do.
+                        printf("按道理这里也是不应该跑到的啊!!\n");
+                    } else {
+                        key->id = id.id;
+                        send(des, FORWARD, src, (char *)&key->id, 4);
+                        // the source is localed on node with filescription fd.
+                    }
                 }
                 delete key;
                 break;
@@ -248,7 +259,7 @@ void Node::processNetworkMsg(char *buf, int len) {
                     // the source of key is localed.
                     // nothing to do.
                     //links->checkConnected(src);
-                    send(src, FP_BACK, &id, NULL, 0);
+                    send(src, FP_BACK, &id, extra_msg, msg_len);
                 } else {
                     //key->id = id.id;
                     send(des, FIRST_PUSH, src, (char *)extra_msg, msg_len);
@@ -262,10 +273,9 @@ void Node::processNetworkMsg(char *buf, int len) {
                 //ID *key = (ID *)malloc(sizeof(*key));
                 ID *key = new ID();
                 memcpy(&key->id, extra_msg, sizeof(int));
-                //key->id = (int)extra_msg;
-                key->ip = src->ip;
-                key->port = src->port;
 
+                printf("key->id = [%d]\n", key->id);
+                printKeysMap();
                 char *ret = keyIsLocaled(key);
                 if (ret) { 
                     links->checkConnected(src);
@@ -304,8 +314,10 @@ void Node::processNetworkMsg(char *buf, int len) {
                 ID *key = new ID();
                 string str = extra_msg;
                 ID::makeID(str, key);
-                push(src, NULL);
-                broadcast(START_PULL, (void *)&key, sizeof(int));
+                printf("In FP_BACK, key->id : [%d]\n", key->id);
+                char snd[4] = {0};
+                sprintf(snd, "%4d", key->id);
+                broadcast(START_PULL, snd, 4);
                 break;
                 // Here will be deleted.
             }
@@ -337,6 +349,17 @@ void Node::processNetworkMsg(char *buf, int len) {
                 }
                 printf("\n");
                 deserializeLeafSetAndRouteTable(extra_msg);
+                break;
+            }
+        case NEW_NODE:
+            {
+                char *p = strchr(extra_msg, ':');
+                *p = 0;
+                p++;
+                string t_ip = extra_msg;
+                int port = atoi(p);
+                if (t_ip.compare(local_ip) != 0 || port != local_port) 
+                    links->connect(t_ip, port);
                 break;
             }
         default:
@@ -458,7 +481,6 @@ void Node::push(ID *key, char *message) {
         case 0:
             {
                 ID *node = lookupKey(key);
-                status = 1;
                 saveMsg(message, strlen(message));
                 if (node->addrEqual(&id)) {
                     saveMsg(message, strlen(message));
@@ -482,7 +504,8 @@ void Node::push(ID *key, char *message) {
 }
 
 void Node::pull(ID *key) {
-    int fd = lookup(key);
+    unuse(key);
+    //int fd = lookup(key);
 }
 
 ID *Node::lookupLeafSet(ID *key) {
@@ -812,6 +835,8 @@ string Node::opToStr(char op) {
             return "SYNC_RT";
         case FP_BACK:
             return "FP_BACK";
+        case NEW_NODE:
+            return "NEW_NODE";
         default:
             return "Unknown";
     }
@@ -829,5 +854,12 @@ void Node::printLeafSetAndRouteTable(int fd) {
             printf("[ip:%s   port:%d   id:%d]\t", rtable[i][j]->ip.c_str(), rtable[i][j]->port, rtable[i][j]->id);
         }
         printf("\n");
+    }
+}
+
+void Node::printKeysMap() {
+    int iter = 0;
+    for (map<ID *, string>::iterator it = keys.begin(); it != keys.end(); ++it, ++iter) {
+        printf("keys[%d] : [%d->%s]\n", iter, it->first->id, it->second.c_str());
     }
 }

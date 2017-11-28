@@ -53,10 +53,11 @@ private:
 
    bool newConnection(Node *node);
    void processNetwork(); 
-   void cleaningWork(int fd);
+   void cleaningWork(Node *node, int fd);
 
    void expireWork(Node *node);
    int expireTime;
+   int iter;
 };
 
 #endif 

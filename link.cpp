@@ -18,6 +18,7 @@
 void Link::init() {
    epfd = epoll_create(1);
    expireTime = 0;
+   iter = 0;
 }
 
 void Link::listen() {
@@ -114,7 +115,7 @@ void Link::poll(Node *node) {
 #endif
             memset(buf, 0, 4);
             if (nread == 0) {
-               cleaningWork(events[i].data.fd);
+               cleaningWork(node, events[i].data.fd);
                continue;
             }
             if (nread != sizeof(len) && len == -1) {
@@ -159,19 +160,22 @@ void Link::checkConnected(ID *des) {
 void Link::expireWork(Node *node) { 
     if (expireTime++ > 10) {
         ID *key = new ID();
-        string str = "Hello World!";
+        string str = "Hello World!" + to_string(iter);
         ID::makeID(str, key);
         node->push(key, (char *)str.c_str());
         expireTime = 0;
+        iter++;
     }
 }
 
-void Link::cleaningWork(int fd) {
+void Link::cleaningWork(Node *node, int fd) {
    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
    close(fd);
+   Each_link el(fd, links[fd].ip, links[fd].port);
+   node->deleteNode(&el);
    links_map.erase(links_map.find(addr(links[fd].ip, links[fd].port)));
    links[fd].use = false;
-   printf("node [%s:%d] currently disconnected\n", links[fd].ip.c_str(), links[fd].port);
+   printf("node [%s:%d] currently disconnected, current node size [%d]\n", links[fd].ip.c_str(), links[fd].port, (int)links_map.size());
 }
 
 bool Link::newConnection(Node *node) {
@@ -194,9 +198,7 @@ bool Link::newConnection(Node *node) {
    printf("A new connection : [%s:%d]\n", el.ip.c_str(), el.port);
 #ifdef DEBUG
    google::FlushLogFiles(google::INFO);
-#endif
-
-
+#endif 
    return true;
 }
 

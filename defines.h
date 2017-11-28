@@ -24,6 +24,7 @@ enum Ops {
    PULL,
    SYNC,
    SYNC_RT,
-   SYNC_RT_BACK
+   SYNC_RT_BACK,
+   NEW_NODE
 };
 #endif 

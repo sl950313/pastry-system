@@ -34,6 +34,7 @@ public:
    void init();
    void boot();
    void newNode(Each_link *el);
+   void deleteNode(Each_link *el);
 
    void pull(ID *key);
    void push(ID *key, char *msg);
@@ -115,6 +116,7 @@ private:
 
    char *keyIsLocaled(ID *key);
    void printLeafSetAndRouteTable(int fd);
+   void printKeysMap();
 };
 
 class Server : public Node {
