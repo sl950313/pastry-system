@@ -23,6 +23,16 @@ public:
       b = 4;
       port = -1;
    }
+   ID(string _ip, int _p) {
+       ip = _ip;
+       port = _p;
+       b = 4;
+   }
+   ID(int _id) {
+       id = _id;
+       b = 4;
+       port = -1;
+   }
    int id; /* 0 < id < 256 = 8 * 16 */
 
    void copy(ID &other) {
@@ -49,7 +59,7 @@ public:
    }
 
    int position(int p) {
-      return (id / pow(b, p)) % b;
+      return (id / _pow(b, p)) % b;
    }
 
    int sha_pref(const ID *other) { 
@@ -71,7 +81,7 @@ public:
       return id != -1;
    }
 
-   int pow(int n, int c) {
+   int _pow(int n, int c) {
       int sum = 1;
       while(c--) {
          sum *= n;

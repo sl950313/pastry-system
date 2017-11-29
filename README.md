@@ -1,5 +1,5 @@
-# pastry-system
-Pastry p2p architecture which aims to be used in parameter server ps-lite.
+# **pastry-system**
+__Pastry__ p2p architecture which aims to be used in parameter server [ps-lite](https://github.com/dmlc/ps-lite).
 
 ```
 void push(char *msg);
@@ -8,14 +8,19 @@ The only interface will push the msg to the total node in the pastry system.
 
 # Build
    
+
+```
   git clone https://github.com/sl950313/pastry-system
   cd pastry-system && make -j4
+``` 
+
 
 # Dependencies
 
 - [sha1](https://github.com/vog/sha1)
 - [google glog](https://github.com/google/glog)
 - [protobuf](https://github.com/google/protobuf)
+- [google test](https://github.com/google/googletest)
 
 # How To Use 
 
@@ -27,6 +32,7 @@ void main() {
    */
    Node *p = new Node(role, ip, port);
    p->init();
+   p->joinPastry(other_nodeip, port);
    /*
    The boot() will create a therad and start listen and process network info in status machine.
    */
@@ -40,8 +46,7 @@ void main() {
 ```
 
 ```
-make 
-./pastry role port [serv\_ip] [serv_port] 
+./pastry role port [serv_ip] [serv_port] 
 ./pastry 1 8001 
 ./pastry 0 8002 127.0.0.1 8001
 ```

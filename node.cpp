@@ -764,12 +764,14 @@ int Node::getFdByNodeId(ID *id) {
     return links->find(id->ip, id->port);
 }
 
+/*
 void Node::assert(bool assert, char *str) {
     if (!assert) {
         printf("%s\n", str);
         exit(-1);
     }
 }
+*/
 
 int Node::serialize(ID *t_id, char *msg) {
     int offset = 0;

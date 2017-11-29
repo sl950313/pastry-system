@@ -30,7 +30,7 @@ public:
    //virtual int enterRing();
 
    ID *route(void *msg, int key);
-   void deliver(void *msg, int key);
+   //void deliver(void *msg, int key);
    void init();
    void boot();
    void newNode(Each_link *el);
@@ -68,7 +68,7 @@ private:
    /* msgs controled by myself */
    map<ID *, string, idCmp> keys;
 
-   void assert(bool assert, char *str);
+   //void assert(bool assert, char *str);
    ID *lookupKey(ID *key);
    void nodesDiscoveryAlg();
    //void create
