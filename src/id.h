@@ -35,10 +35,10 @@ public:
    }
    int id; /* 0 < id < 256 = 8 * 16 */
 
-   void copy(ID &other) {
-      ip = other.ip;
-      id = other.id;
-      port = other.port;
+   void copy(ID *other) {
+      ip = other->ip;
+      id = other->id;
+      port = other->port;
    }
    
    bool operator<(ID other) const {

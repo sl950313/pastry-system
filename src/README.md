@@ -11,7 +11,7 @@ The only interface will push the msg to the total node in the pastry system.
 
 ```
   git clone https://github.com/sl950313/pastry-system
-  cd pastry-system && make -j4
+  cd pastry-system && make -j4 && make check && make install
 ``` 
 
 

@@ -11,6 +11,7 @@
 #define _DEFINES_H
 
 #define LOG_FILENAME "pastry-"
+#define BIT_NUM 4
 
 /* For debug mode. */
 #define DEBUG

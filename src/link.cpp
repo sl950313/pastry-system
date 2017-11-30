@@ -160,7 +160,7 @@ void Link::checkConnected(ID *des) {
 void Link::expireWork(Node *node) { 
     if (expireTime++ > 10) {
         ID *key = new ID();
-        string str = "Hello World!" + to_string(iter);
+        string str = "Hello World!" + to_string(0);
         ID::makeID(str, key);
         node->push(key, (char *)str.c_str());
         expireTime = 0;

@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include "node.h"
 #include <stdlib.h>
+#include "node.h"
 #define SERVER 1
 
 void Usage() {
