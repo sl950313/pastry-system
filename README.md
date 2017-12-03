@@ -7,13 +7,14 @@ void push(char *msg);
 The only interface will push the msg to the total node in the pastry system.
 
 # Build
-   
 
 ```
   git clone https://github.com/sl950313/pastry-system
-  cd pastry-system && make -j4 && make check && make install
+  cd pastry-system 
+  ./autogen.sh && ./configure && make -j4 
+  make check (Optimal)
+  make install
 ``` 
-
 
 # Dependencies
 
@@ -45,10 +46,16 @@ void main() {
 }
 ```
 
-```
+
+
+``` 
 ./pastry role port [serv_ip] [serv_port] 
 ./pastry 1 8001 
-./pastry 0 8002 127.0.0.1 8001
+./pastry 0 8002 127.0.0.1 8001 
 ```
 
+# License
+100 % Public Domain
 
+# Authors
+- Lei Shi

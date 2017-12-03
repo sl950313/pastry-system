@@ -31,6 +31,9 @@ TEST_F(IDTest, PositionTest) {
 
 TEST_F(IDTest, ShaPrefTest) {
     EXPECT_EQ(3, id->sha_pref(id2));
+    ID *i1 = new ID(870);
+    ID *i2 = new ID(1638);
+    EXPECT_EQ(4, i1->sha_pref(i2));
 }
 
 TEST_F(IDTest, PowTest) {
@@ -49,6 +52,10 @@ TEST_F(IDTest, AddrEqualTest) {
     ASSERT_TRUE(i1->addrEqual(i2));
     ASSERT_FALSE(i1->addrEqual(i3));
     ASSERT_FALSE(i3->addrEqual(i4));
+    delete i1;
+    delete i2;
+    delete i3;
+    delete i4;
 }
 
 TEST_F(IDTest, DistanceTest) {

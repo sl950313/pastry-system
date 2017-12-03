@@ -61,6 +61,7 @@ private:
 
    /* msgs controled by myself */
    map<ID *, string, idCmp> keys;
+   int key_file; // save keys of map in a file.
 
    void nodesDiscoveryAlg();
 

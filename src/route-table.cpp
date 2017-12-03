@@ -14,15 +14,6 @@
 #include <glog/logging.h>
 
 RouteTable::RouteTable() {
-    rtable = (ID ***)malloc(sizeof(ID **) * BIT_NUM);
-    for (int i = 0; i < BIT_NUM; ++i) {
-        //rtable[i] = new ID();
-        rtable[i] = (ID **)malloc(sizeof(ID) * b);
-        for (int j = 0; j < b; ++j) {
-            rtable[i][j] = new ID();
-        }
-        rtable[i][id->position(i)]->copy(id);// = id;
-    }
 }
 
 RouteTable::~RouteTable() {
@@ -34,30 +25,48 @@ RouteTable::~RouteTable() {
     free(rtable);
 }
 
+void RouteTable::initial() {
+    rtable = (ID ***)malloc(sizeof(ID **) * BIT_NUM);
+    for (int i = 0; i < BIT_NUM; ++i) {
+        //rtable[i] = new ID();
+        rtable[i] = (ID **)malloc(sizeof(ID) * b);
+        for (int j = 0; j < b; ++j) {
+            rtable[i][j] = new ID();
+        }
+        rtable[i][id->position(i)]->copy(id);// = id;
+    }
+}
+
 ID *RouteTable::lookupRouteTable(ID *key) {
     int p = id->sha_pref(key);
     int v = key->position(p);
 
+    if (p == b) {
+        return id;
+    }
+
     if (rtable[p][v]->notNull()) {
-        //return rtable[p][v];
-        //forward(rtable[p][v], key);
         if (!rtable[p][v]->addrEqual(id))
             return rtable[p][v];
     } 
-    int min_dis = INT_MAX;
-    int pos = -1;
+    int min_dis = id->numericalDistance(key);
+    //int pos = -1;
+    ID *closest = id;
+    int best_dis = id->distance(key);
     for (int i = 0; i < BIT_NUM; ++i) {
         if (rtable[p][i]->notNull() && !rtable[p][i]->addrEqual(id)) {
+            int numdis = rtable[p][i]->numericalDistance(key);
             int dis = rtable[p][i]->distance(key);
-            if (dis < min_dis) {
-                pos = i;
-                min_dis = dis;
+            if (dis < best_dis || (dis == best_dis && min_dis > numdis)) {
+                //pos = i;
+                closest = rtable[p][i];
+                min_dis = numdis;
+                best_dis = dis;
             }
         }
     }
-    if (pos != -1) {
-        //forward(rtable[p][pos], key);
-        return rtable[p][pos];
+    if (closest) {
+        return closest;
     }
     LOG(INFO) << "error occurs with leaf set and route table";
     printf("We may assume the current system doesn't has other node, error occurs with leaf set and route table\n");
@@ -78,6 +87,24 @@ void RouteTable::updateRouteTableWithNewNode(Each_link *el) {
     if (!rtable[p][v]->notNull()) {
         rtable[p][v]->copy(t_id);
     }
+    delete t_id;
+}
+
+void RouteTable::updateRouteTableWithDeleteNode(Each_link *el) { 
+    ID *t_id = new ID();
+    t_id->ip = el->ip;
+    t_id->port = el->port;
+    ID::defaultMakeID(t_id); 
+    int p = id->sha_pref(t_id);
+    int v = t_id->position(p);
+
+    ID *tmp = new ID();
+    if (rtable[p][v]->notNull()) {
+        rtable[p][v]->copy(tmp);
+    }
+
+    delete tmp;
+    delete t_id;
 }
 
 void RouteTable::correctRouteTable() {
@@ -109,4 +136,11 @@ int RouteTable::deserializeRouteTable(char **str) {
 }
 
 void RouteTable::printRouteTable() {
+    printf("------------Route Table Info-------------\n");
+    for (int i = 0; i < b; ++i) {
+        for (int j = 0; j < BIT_NUM; ++j) {
+            printf("[ip:%s   port:%d   id:%d]\t", rtable[i][j]->ip.c_str(), rtable[i][j]->port, rtable[i][j]->id);
+        }
+        printf("\n");
+    }
 }

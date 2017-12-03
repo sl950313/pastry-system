@@ -13,16 +13,26 @@
 #include "leafset.h"
 
 LeafSet::LeafSet() {
-    leaf_set = (ID **)malloc(sizeof(ID *) * l);
-    for (int i = 0; i < l; ++i)
-        leaf_set[i] = new ID();
-    leaf_set[l / 2]->copy(id);
+    //initial();
+}
+
+LeafSet::LeafSet(int _l, ID *_id) {
+    l = _l; 
+    id = _id; 
+    initial();
 }
 
 LeafSet::~LeafSet() { 
     for (int i = 0; i < l; ++i)
         delete leaf_set[i];
     delete leaf_set;
+}
+
+void LeafSet::initial() {
+    leaf_set = (ID **)malloc(sizeof(ID *) * l);
+    for (int i = 0; i < l; ++i)
+        leaf_set[i] = new ID();
+    leaf_set[l / 2]->copy(id);
 }
 
 ID *LeafSet::lookupLeafSet(ID *key) {
@@ -38,29 +48,31 @@ ID *LeafSet::lookupLeafSet(ID *key) {
             break;
         }
     }
-    if (key->bigger(leaf_set[s]) && !key->bigger(leaf_set[f])) {
-        ID *closest = NULL;
-        int min_dis = INT_MAX;
+    int best_dis = id->distance(key);
+    int min_dis = id->numericalDistance(key);
+    if (!key->less(leaf_set[s]) && !key->bigger(leaf_set[f])) {
+        ID *closest = id;
         for (int i = s; i <= f; ++i) {
             if (key->addrEqual(leaf_set[i])) continue;
+            int numdis = key->numericalDistance(leaf_set[i]);
             int dis = key->distance(leaf_set[i]);
-            if (dis < min_dis) {
+            if (dis < best_dis || (dis == best_dis && min_dis < numdis)) {
                 closest = leaf_set[i];
-                min_dis = dis;
+                min_dis = numdis;
+                best_dis = dis;
             }
         }
-        if (closest->addrEqual(id)) { 
+        if (!closest->addrEqual(id)) { 
             return closest;
         } else {
-            return (closest);
+            return closest;
         }
     }
     LOG(INFO) << "the key is not in the leaf_set. key : [" << key->ip << ":" << key->port << ":" << key->id << "]";
     printf("the key is not in the leaf_set. key : [%s:%d:%d]\n", key->ip.c_str(), key->port, key->id);
 #ifdef DEBUG
     google::FlushLogFiles(google::INFO);
-#endif
-
+#endif 
     return NULL;
 }
 
@@ -96,6 +108,36 @@ void LeafSet::updateLeafSetWithNewNode(Each_link *el) {
             }
         }
     }
+    delete t_id;
+}
+
+void LeafSet::updateLeafSetWithDeleteNode(Each_link *el) {
+    ID *t_id = new ID();
+    t_id->ip = el->ip;
+    t_id->port = el->port;
+    ID::defaultMakeID(t_id);
+
+    int off = -1;
+    for (int i = 0; i < l; ++i) {
+        if (!leaf_set[i]->bigger(id) && !id->bigger(leaf_set[i])) {
+            off = i;
+            break;
+        }
+    }
+    ID *tmp = new ID();
+    if (off != -1) {
+        if (off < l / 2) {
+            for (int i = off - 1; i >= 0; --i){
+                leaf_set[i + 1]->copy(leaf_set[i]);
+            }
+            leaf_set[0]->copy(tmp);
+        } else {
+            for (int i = off + 1; i < l; ++i)
+                leaf_set[i]->copy(leaf_set[i - 1]);
+            leaf_set[l - 1]->copy(tmp);
+        }
+    }
+    delete tmp;
     delete t_id;
 }
 

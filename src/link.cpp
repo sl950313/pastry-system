@@ -87,11 +87,12 @@ void Link::poll(Node *node) {
          if (events[i].data.fd == listenfd) {
             newConnection(node);
          } else if (events[i].events & EPOLLIN) { 
-            char buf[256] = {0};
+            char buf[BUF_LEN] = {0};
             if (!links[events[i].data.fd].use) {
                int port = -1;
                int fd = events[i].data.fd;
-               read(events[i].data.fd, &port, sizeof(int)); 
+               int n = read(events[i].data.fd, &port, sizeof(int)); 
+               unuse(&n);
                LOG(INFO) << "receive port : " << port;
                printf("receive port : %d\n", port);
 #ifdef DEBUG
@@ -102,7 +103,7 @@ void Link::poll(Node *node) {
                pair<map<addr, int>::iterator, bool> ret = links_map.insert(pair<addr, int>(addr(links[events[i].data.fd].ip, port), fd));
                if (ret.second == false) {
                   printf("element %s:%d already existed\n", links[events[i].data.fd].ip.c_str(), port);
-               }
+               } 
                node->newNode(&links[events[i].data.fd]);
                continue;
             }
@@ -113,7 +114,7 @@ void Link::poll(Node *node) {
 #ifdef DEBUG
             google::FlushLogFiles(google::INFO);
 #endif
-            memset(buf, 0, 4);
+            memset(buf, 0, BUF_LEN);
             if (nread == 0) {
                cleaningWork(node, events[i].data.fd);
                continue;
@@ -126,7 +127,7 @@ void Link::poll(Node *node) {
 #endif
                continue;
             } else {
-               memset(buf, 0, 256);
+               memset(buf, 0, BUF_LEN);
                nread = read(events[i].data.fd, buf, len);
                LOG(INFO) << "nread=[" << nread << "],len=[" << len << "],buf=[" << buf << "].";
                printf("nread = [%d], len = [%d], buf=[%s]\n", nread, len, buf);
@@ -152,7 +153,8 @@ void Link::poll(Node *node) {
 
 void Link::checkConnected(ID *des) {
     map<addr, int>::iterator it = links_map.find(addr(des->ip, des->port));
-    if (it == links_map.end()) {
+    if (it == links_map.end() && !(des->ip.compare(ip) == 0 && des->port == port)) {
+        printf("des [%s:%d] is not connected!\n", des->ip.c_str(), des->port);
         connect(des->ip, des->port);
     }
 }
@@ -160,7 +162,7 @@ void Link::checkConnected(ID *des) {
 void Link::expireWork(Node *node) { 
     if (expireTime++ > 10) {
         ID *key = new ID();
-        string str = "Hello World!" + to_string(0);
+        string str = "Hello World!" + to_string(iter);
         ID::makeID(str, key);
         node->push(key, (char *)str.c_str());
         expireTime = 0;

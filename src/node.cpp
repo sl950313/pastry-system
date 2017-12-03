@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <glog/logging.h>
@@ -15,6 +18,7 @@ Node::Node(int _role, string ip, int port, string servip, int servp) {
     role = (Role)_role;
     b = 4;
     l = 4;
+    key_file = -1;
     local_ip = ip;
     local_port = port;
     serv_ip = servip;
@@ -46,11 +50,11 @@ void Node::init() {
     google::FlushLogFiles(google::INFO);
 #endif
 
+    key_file = open(TMP_FILE_NAME, O_RDWR | O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    CHECK_NE(key_file, -1) << "file " << TMP_FILE_NAME << " create and open error";
 
     links->init();
     links->listen();
-
-    //nset.resize(l);
 
     lset->printLeafSet();
     rtable->printRouteTable();
@@ -76,15 +80,13 @@ void Node::init() {
         tmp->ip = serv_ip;
         tmp->port = serv_port;
         int fd = getFdByNodeId(tmp);
-        write(fd, &local_port, 4);
+        int n = write(fd, &local_port, 4);
+        unuse(&n);
         send(fd, SYNC, &id, NULL, 0);
-        lset->printLeafSet();
-        rtable->printRouteTable();
-        //status = 2;
         delete tmp;
     }
 
-    /* boot heartbeat thread. */
+    /* boot heartbeat thread. TODO*/
 }
 
 void Node::newNode(Each_link *el) {
@@ -97,17 +99,16 @@ void Node::newNode(Each_link *el) {
 }
 
 void Node::deleteNode(Each_link *el) {
+    lset->updateLeafSetWithDeleteNode(el);
+    rtable->updateRouteTableWithDeleteNode(el);
 }
 
 void Node::boot() {
-    //pthread_t pid;
-    //pthread_create(&pid, NULL, test, this);
     links->poll(this);
 }
 
 void Node::processNetworkMsg(char *buf, int len) { 
     char op = 0x00;// = buf[0];
-    //char *data = buf + 1;
     ID *src = new ID();
     char *extra_msg = NULL;
     int msg_len = 0;
@@ -149,8 +150,8 @@ void Node::processNetworkMsg(char *buf, int len) {
                         // nothing to do.
                         printf("按道理这里也是不应该跑到的啊!!\n");
                     } else {
-                        key->id = id.id;
-                        send(des, FORWARD, src, (char *)&key->id, 4);
+                        //key->id = id.id;
+                        send(des, FORWARD, &id, (char *)&key->id, 4);
                         // Wait for FW_RESP.
                         // the source is localed on node with filescription fd.
                     }
@@ -209,7 +210,7 @@ void Node::processNetworkMsg(char *buf, int len) {
                 string str = extra_msg;
                 ID::makeID(str, key);
                 printf("In FP_BACK, key->id : [%d]\n", key->id);
-                char snd[4] = {0};
+                char snd[5] = {0};
                 sprintf(snd, "%4d", key->id);
                 broadcast(START_PULL, snd, 4);
                 break;
@@ -274,8 +275,10 @@ void Node::processNetworkMsg(char *buf, int len) {
                 p++;
                 string t_ip = extra_msg;
                 int port = atoi(p);
-                if (t_ip.compare(local_ip) != 0 || port != local_port) 
+                if (t_ip.compare(local_ip) != 0 || port != local_port) {
+                    printf("New node is [%s:%d]\n", t_ip.c_str(), port);
                     links->connect(t_ip, port);
+                }
                 break;
             }
         default:
@@ -307,6 +310,11 @@ void Node::push(ID *key, char *message) {
     saveMsg(message, strlen(message));
     if (!node->addrEqual(&id)) {
         send(node, FIRST_PUSH, &id, message, strlen(message));
+    } else {
+        printf("The key is in currently localed. It's time to broadcast.\n");
+        char snd[5] = {0};
+        sprintf(snd, "%4d", key->id);
+        broadcast(START_PULL, snd, 4);
     }
 }
 
@@ -329,7 +337,9 @@ void Node::saveMsg(char *msg, int len) {
     ID *key = (ID *)malloc(sizeof(*key));
     ID::makeID(_msg, key);
     keys.insert(pair<ID *,  string >(key, _msg));
-    printf("current keys size:[%d]\n", (int)keys.size());
+    printf("msg %s is current pulled, current keys size:[%d]\n", msg, (int)keys.size());
+    int n = write(key_file, msg, len);
+    n = write(key_file, "\n", 1);
 }
 
 void Node::send(ID *des, char op, ID *src, char *message, int msg_len) {

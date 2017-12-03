@@ -18,17 +18,21 @@ struct Each_link;
 
 class LeafSet : public Set{
     public:
-        LeafSet();
-        LeafSet(int _l, ID *_id) {l = _l; id = _id; LeafSet();}
+        LeafSet(int _l, ID *_id);
         ~LeafSet();
         ID *lookupLeafSet(ID *key);
         void updateLeafSetWithNewNode(Each_link *el);
+        void updateLeafSetWithDeleteNode(Each_link *el);
         void correctLeafSet();
         int serializeLeafSet(char *str);
         int deserializeLeafSet(char **str);
         void printLeafSet();
 
     private:
+        LeafSet();
+        void initial();
+
+
         ID **leaf_set;
         ID *id;
         int s, f, l;

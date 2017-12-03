@@ -10,8 +10,10 @@
 #ifndef _DEFINES_H
 #define _DEFINES_H
 
+#define TMP_FILE_NAME "pastry-keys.txt"
 #define LOG_FILENAME "pastry-"
 #define BIT_NUM 4
+#define BUF_LEN 1024
 
 /* For debug mode. */
 #define DEBUG

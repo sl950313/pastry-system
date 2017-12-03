@@ -53,9 +53,17 @@ public:
       return id > other->id;
    }
 
+   bool less(ID *other) {
+       return id < other->id;
+   }
+
    int distance(ID *other) {
       // for the 1.0 version, we use the sha_pref.
       return b - sha_pref(other);
+   }
+
+   int numericalDistance(ID *other) {
+       return abs(id - other->id);
    }
 
    int position(int p) {
