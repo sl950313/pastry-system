@@ -33,6 +33,7 @@ Node::Node(int _role, string ip, int port, string servip, int servp) {
 }
 
 Node::~Node() {
+    //main_thread.join();
     delete links;
     delete lset;
     delete rtable;
@@ -93,9 +94,11 @@ void Node::newNode(Each_link *el) {
     lset->updateLeafSetWithNewNode(el);
     rtable->updateRouteTableWithNewNode(el);
 
-    char msg[64] = {0};
-    sprintf(msg, "%s:%d", el->ip.c_str(), el->port);
-    broadcast(NEW_NODE, msg, strlen(msg));
+    if (role == Server) {
+        char msg[64] = {0};
+        sprintf(msg, "%s:%d", el->ip.c_str(), el->port);
+        broadcast(NEW_NODE, msg, strlen(msg));
+    }
 }
 
 void Node::deleteNode(Each_link *el) {
@@ -104,7 +107,8 @@ void Node::deleteNode(Each_link *el) {
 }
 
 void Node::boot() {
-    links->poll(this);
+    main_thread = std::thread(&Link::poll, links, this);
+    //links->poll(this);
 }
 
 void Node::processNetworkMsg(char *buf, int len) { 
@@ -277,7 +281,26 @@ void Node::processNetworkMsg(char *buf, int len) {
                 int port = atoi(p);
                 if (t_ip.compare(local_ip) != 0 || port != local_port) {
                     printf("New node is [%s:%d]\n", t_ip.c_str(), port);
-                    links->connect(t_ip, port);
+                    bool res = links->connect(t_ip, port);
+                    if (!res) {
+                        LOG(ERROR) << "error connect server[" << t_ip << ":" << port << "].";
+                        printf("error connect server[%s:%d]\n", t_ip.c_str(), port);
+#ifdef DEBUG
+                        google::FlushLogFiles(google::INFO);
+#endif
+                        exit(-1);
+                    }
+                    LOG(INFO) << "connect new node [" << t_ip << ":" << port << "].";
+                    printf("connect server[%s:%d]\n", t_ip.c_str(), port);
+#ifdef DEBUG
+                    google::FlushLogFiles(google::INFO);
+#endif
+                    ID *tmp = new ID();
+                    tmp->ip = t_ip;
+                    tmp->port = port;
+                    int fd = getFdByNodeId(tmp);
+                    int n = write(fd, &local_port, 4);
+                    unuse(&n);
                 }
                 break;
             }
@@ -301,6 +324,17 @@ char *Node::keyIsLocaled(ID *key) {
     else return NULL;
 }
 
+void Node::push(char *msg, int len) {
+    if (len == 0) return ;
+    unuse(&len);
+    ID *key = new ID();
+    string str = msg;
+    ID::makeID(str, key);
+    lock();
+    push(key, (char *)str.c_str());
+    unlock();
+    delete key;
+}
 
 /*
  * server run the command.

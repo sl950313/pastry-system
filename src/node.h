@@ -4,6 +4,8 @@
 #include <vector>
 #include <map>
 #include <list>
+#include <thread>
+#include <mutex>
 #include "link.h"
 #include "sha1.hpp"
 #include "id.h"
@@ -38,10 +40,21 @@ public:
 
    void pull(ID *key);
    void push(ID *key, char *msg);
+   void push(char *msg, int len);
+
+   void lock() {
+       mtx_.lock();
+   }
+   void unlock() {
+       mtx_.unlock();
+   }
 
    void processNetworkMsg(char *buf, int len);
 
 private: 
+   std::mutex mtx_;
+   std::thread main_thread;
+
    string serv_ip;
    int serv_port;
 
