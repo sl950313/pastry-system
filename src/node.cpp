@@ -91,6 +91,7 @@ void Node::init() {
 }
 
 void Node::newNode(Each_link *el) {
+    lock();
     lset->updateLeafSetWithNewNode(el);
     rtable->updateRouteTableWithNewNode(el);
 
@@ -99,11 +100,14 @@ void Node::newNode(Each_link *el) {
         sprintf(msg, "%s:%d", el->ip.c_str(), el->port);
         broadcast(NEW_NODE, msg, strlen(msg));
     }
+    unlock();
 }
 
 void Node::deleteNode(Each_link *el) {
+    lock();
     lset->updateLeafSetWithDeleteNode(el);
     rtable->updateRouteTableWithDeleteNode(el);
+    unlock();
 }
 
 void Node::boot() {
@@ -111,7 +115,13 @@ void Node::boot() {
     //links->poll(this);
 }
 
-void Node::processNetworkMsg(char *buf, int len) { 
+void Node::processNetworkMsg(char *buf, int len) {
+    lock();
+    process(buf, len);
+    unlock();
+}
+
+void Node::process(char *buf, int len) { 
     char op = 0x00;// = buf[0];
     ID *src = new ID();
     char *extra_msg = NULL;
@@ -360,9 +370,6 @@ ID *Node::lookupKey(ID *key) {
     } else {
         return rtable->lookupRouteTable(key);
     }
-}
-
-void Node::nodesDiscoveryAlg() {
 }
 
 void Node::saveMsg(char *msg, int len) {

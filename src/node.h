@@ -39,15 +39,8 @@ public:
    void deleteNode(Each_link *el);
 
    void pull(ID *key);
-   void push(ID *key, char *msg);
    void push(char *msg, int len);
 
-   void lock() {
-       mtx_.lock();
-   }
-   void unlock() {
-       mtx_.unlock();
-   }
 
    void processNetworkMsg(char *buf, int len);
 
@@ -76,7 +69,14 @@ private:
    map<ID *, string, idCmp> keys;
    int key_file; // save keys of map in a file.
 
-   void nodesDiscoveryAlg();
+   void process(char *buf, int len);
+   void push(ID *key, char *msg);
+   void lock() {
+       mtx_.lock();
+   }
+   void unlock() {
+       mtx_.unlock();
+   }
 
    /*
     * Lookup key from leaf set and route table
