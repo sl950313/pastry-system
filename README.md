@@ -1,6 +1,8 @@
 # **pastry-system**
 __Pastry__ p2p architecture which aims to be used in parameter server [ps-lite](https://github.com/dmlc/ps-lite).
 
+An implement of [Pastry: Scalable, decentralized object location, and routing for large-scale peer-to-peer systems](https://link.springer.com/chapter/10.1007/3-540-45518-3_18)
+
 ```
 void push(char *msg);
 ```
